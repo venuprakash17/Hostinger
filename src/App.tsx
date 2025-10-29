@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { DashboardLayout } from "./layouts/DashboardLayout";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import CreateTestAccounts from "./pages/CreateTestAccounts";
 import Dashboard from "./pages/Dashboard";
 import Resume from "./pages/Resume";
 import Coding from "./pages/Coding";
@@ -35,9 +36,10 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/" element={<Navigate to="/create-test-accounts" replace />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/create-test-accounts" element={<CreateTestAccounts />} />
           
           {/* Student Routes */}
           <Route element={<DashboardLayout />}>
