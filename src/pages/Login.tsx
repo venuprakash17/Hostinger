@@ -1,49 +1,86 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { GraduationCap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function Login() {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState("student");
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Mock authentication - in real app, this would call an API
-    if (email && password) {
-      // Store auth data
-      localStorage.setItem('authToken', 'mock-token-12345');
-      localStorage.setItem('userRole', role);
-      localStorage.setItem('userId', role === 'student' ? 'ST001' : 'FAC001');
-      
-      toast.success(`Login successful! Welcome ${role}!`);
-      
-      // Navigate based on role
-      setTimeout(() => {
-        switch(role) {
-          case 'faculty':
-            navigate('/faculty/dashboard');
-            break;
-          case 'admin':
-            navigate('/admin/dashboard');
-            break;
-          case 'superadmin':
-            navigate('/superadmin/dashboard');
-            break;
-          default:
-            navigate('/dashboard');
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const { data: roleData } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", session.user.id)
+          .single();
+
+        if (roleData) {
+          navigateByRole(roleData.role);
+        } else {
+          navigate('/dashboard');
         }
-      }, 800);
-    } else {
-      toast.error("Please enter valid credentials");
+      }
+    };
+    checkUser();
+  }, [navigate]);
+
+  const navigateByRole = (role: string) => {
+    switch(role) {
+      case 'super_admin':
+        navigate('/superadmin/dashboard');
+        break;
+      case 'admin':
+        navigate('/admin/dashboard');
+        break;
+      case 'faculty':
+        navigate('/faculty/dashboard');
+        break;
+      default:
+        navigate('/dashboard');
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+
+      if (data.session) {
+        const { data: roleData } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", data.user.id)
+          .single();
+
+        toast.success("Login successful!");
+        
+        if (roleData) {
+          navigateByRole(roleData.role);
+        } else {
+          navigate('/dashboard');
+        }
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Invalid credentials");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -86,23 +123,8 @@ export default function Login() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="role">Role</Label>
-              <Select value={role} onValueChange={setRole}>
-                <SelectTrigger id="role">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="student">Student</SelectItem>
-                  <SelectItem value="faculty">Faculty</SelectItem>
-                  <SelectItem value="admin">College Admin</SelectItem>
-                  <SelectItem value="superadmin">Super Admin</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <Button type="submit" className="w-full bg-gradient-primary">
-              Sign In
+            <Button type="submit" className="w-full bg-gradient-primary" disabled={loading}>
+              {loading ? "Signing in..." : "Sign In"}
             </Button>
 
             <div className="text-center">
