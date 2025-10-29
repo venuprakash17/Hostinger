@@ -6,42 +6,67 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function Signup() {
   const navigate = useNavigate();
-  const [formData, setFormData] = useState({
-    name: "",
-    email: "",
-    password: "",
-    confirmPassword: "",
-    rollNumber: ""
-  });
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [rollNumber, setRollNumber] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleSignup = (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (formData.password !== formData.confirmPassword) {
-      toast.error("Passwords don't match!");
+    if (password !== confirmPassword) {
+      toast.error("Passwords don't match");
       return;
     }
-    
-    // Mock registration - in real app, this would call an API
-    if (formData.name && formData.email && formData.password && formData.rollNumber) {
-      // Store temporary auth data
-      localStorage.setItem('newUser', JSON.stringify({
-        name: formData.name,
-        email: formData.email,
-        rollNumber: formData.rollNumber
-      }));
-      
-      toast.success(`Welcome ${formData.name}! Account created successfully!`);
-      
-      // Navigate to login
-      setTimeout(() => {
-        navigate('/login');
-      }, 1200);
-    } else {
-      toast.error("Please fill in all fields");
+
+    if (password.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/`,
+          data: {
+            full_name: fullName,
+            roll_number: rollNumber,
+          }
+        }
+      });
+
+      if (error) throw error;
+
+      if (data.user) {
+        // Assign student role
+        const { error: roleError } = await supabase
+          .from("user_roles")
+          .insert({ 
+            user_id: data.user.id, 
+            role: 'student' 
+          });
+
+        if (roleError) {
+          console.error("Role assignment error:", roleError);
+        }
+
+        toast.success("Account created successfully! Please login.");
+        setTimeout(() => navigate("/login"), 1000);
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to create account");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -56,18 +81,18 @@ export default function Signup() {
               <GraduationCap className="h-10 w-10 text-white" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold">Create Account</CardTitle>
-          <CardDescription>Join SvnaJobs as a student</CardDescription>
+          <CardTitle className="text-2xl font-bold">Student Registration</CardTitle>
+          <CardDescription>Create your student account</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSignup} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Full Name</Label>
+              <Label htmlFor="fullName">Full Name</Label>
               <Input
-                id="name"
+                id="fullName"
                 placeholder="John Doe"
-                value={formData.name}
-                onChange={(e) => setFormData({...formData, name: e.target.value})}
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
                 required
               />
             </div>
@@ -78,8 +103,8 @@ export default function Signup() {
                 id="email"
                 type="email"
                 placeholder="student@university.edu"
-                value={formData.email}
-                onChange={(e) => setFormData({...formData, email: e.target.value})}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 required
               />
             </div>
@@ -89,8 +114,8 @@ export default function Signup() {
               <Input
                 id="rollNumber"
                 placeholder="CS2021001"
-                value={formData.rollNumber}
-                onChange={(e) => setFormData({...formData, rollNumber: e.target.value})}
+                value={rollNumber}
+                onChange={(e) => setRollNumber(e.target.value)}
                 required
               />
             </div>
@@ -100,8 +125,8 @@ export default function Signup() {
               <Input
                 id="password"
                 type="password"
-                value={formData.password}
-                onChange={(e) => setFormData({...formData, password: e.target.value})}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 required
               />
             </div>
@@ -111,14 +136,14 @@ export default function Signup() {
               <Input
                 id="confirmPassword"
                 type="password"
-                value={formData.confirmPassword}
-                onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
                 required
               />
             </div>
 
-            <Button type="submit" className="w-full bg-gradient-secondary">
-              Create Account
+            <Button type="submit" className="w-full bg-gradient-secondary" disabled={loading}>
+              {loading ? "Creating Account..." : "Create Student Account"}
             </Button>
 
             <div className="text-center text-sm text-muted-foreground">
