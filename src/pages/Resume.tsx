@@ -26,30 +26,30 @@ export default function Resume() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6">
-          <TabsTrigger value="build" className="gap-2">
-            <FileText className="h-4 w-4" />
-            <span className="hidden sm:inline">Build</span>
+        <TabsList className="grid w-full grid-cols-3 md:grid-cols-6 gap-1">
+          <TabsTrigger value="build" className="gap-1 sm:gap-2">
+            <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
+            <span className="hidden sm:inline truncate">Build</span>
           </TabsTrigger>
-          <TabsTrigger value="ats" className="gap-2">
-            <Target className="h-4 w-4" />
-            <span className="hidden sm:inline">ATS Score</span>
+          <TabsTrigger value="ats" className="gap-1 sm:gap-2">
+            <Target className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
+            <span className="hidden sm:inline truncate">ATS Score</span>
           </TabsTrigger>
-          <TabsTrigger value="enhance" className="gap-2">
-            <Sparkles className="h-4 w-4" />
-            <span className="hidden sm:inline">AI Enhance</span>
+          <TabsTrigger value="enhance" className="gap-1 sm:gap-2">
+            <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
+            <span className="hidden sm:inline truncate">AI Enhance</span>
           </TabsTrigger>
-          <TabsTrigger value="role" className="gap-2">
-            <Briefcase className="h-4 w-4" />
-            <span className="hidden sm:inline">Role-Based</span>
+          <TabsTrigger value="role" className="gap-1 sm:gap-2">
+            <Briefcase className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
+            <span className="hidden sm:inline truncate">Role-Based</span>
           </TabsTrigger>
-          <TabsTrigger value="cover" className="gap-2">
-            <Mail className="h-4 w-4" />
-            <span className="hidden sm:inline">Cover Letter</span>
+          <TabsTrigger value="cover" className="gap-1 sm:gap-2">
+            <Mail className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
+            <span className="hidden sm:inline truncate">Cover Letter</span>
           </TabsTrigger>
-          <TabsTrigger value="analytics" className="gap-2">
-            <BarChart className="h-4 w-4" />
-            <span className="hidden sm:inline">Analytics</span>
+          <TabsTrigger value="analytics" className="gap-1 sm:gap-2">
+            <BarChart className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
+            <span className="hidden sm:inline truncate">Analytics</span>
           </TabsTrigger>
         </TabsList>
 
