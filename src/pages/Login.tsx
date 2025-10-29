@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { getSafeAuthError } from "@/lib/authErrors";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -79,7 +80,7 @@ export default function Login() {
         }
       }
     } catch (error: any) {
-      toast.error(error.message || "Invalid credentials");
+      toast.error(getSafeAuthError(error));
     } finally {
       setLoading(false);
     }

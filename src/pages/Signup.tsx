@@ -8,6 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { signupSchema } from "@/lib/signupValidation";
+import { getSafeAuthError } from "@/lib/authErrors";
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -47,30 +49,29 @@ export default function Signup() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (password !== confirmPassword) {
-      toast.error("Passwords don't match");
-      return;
-    }
-
-    if (password.length < 6) {
-      toast.error("Password must be at least 6 characters");
-      return;
-    }
-
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signUp({
+      // Validate all inputs using Zod schema
+      const validatedData = signupSchema.parse({
+        fullName,
         email,
         password,
+        confirmPassword,
+        rollNumber,
+        department,
+        section
+      });
+      const { data, error } = await supabase.auth.signUp({
+        email: validatedData.email,
+        password: validatedData.password,
         options: {
           emailRedirectTo: `${window.location.origin}/`,
           data: {
-            full_name: fullName,
-            roll_number: rollNumber,
-            department,
-            section
+            full_name: validatedData.fullName,
+            roll_number: validatedData.rollNumber,
+            department: validatedData.department,
+            section: validatedData.section
           }
         }
       });
@@ -82,9 +83,9 @@ export default function Signup() {
         await supabase
           .from("profiles")
           .update({ 
-            department,
-            section,
-            roll_number: rollNumber
+            department: validatedData.department,
+            section: validatedData.section,
+            roll_number: validatedData.rollNumber
           })
           .eq("id", data.user.id);
 
@@ -104,7 +105,13 @@ export default function Signup() {
         setTimeout(() => navigate("/login"), 1000);
       }
     } catch (error: any) {
-      toast.error(error.message || "Failed to create account");
+      // Handle Zod validation errors
+      if (error.name === 'ZodError') {
+        const firstError = error.errors[0];
+        toast.error(firstError.message);
+      } else {
+        toast.error(getSafeAuthError(error));
+      }
     } finally {
       setLoading(false);
     }
