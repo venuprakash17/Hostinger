@@ -1,8 +1,31 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.77.0'
+import { z } from 'https://deno.land/x/zod@v3.22.4/mod.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+// Input validation schema
+const createUserSchema = z.object({
+  email: z.string().email().max(255),
+  password: z.string().min(8).max(128),
+  fullName: z.string().min(1).max(100).trim(),
+  role: z.enum(['super_admin', 'admin', 'faculty', 'student']),
+  collegeId: z.string().uuid().optional(),
+  department: z.string().max(100).optional(),
+  section: z.string().max(50).optional(),
+  rollNumber: z.string().max(50).optional()
+})
+
+function getSafeErrorMessage(error: any): string {
+  console.error('Detailed error:', error)
+  if (error.code === '23505') return 'User already exists with this email'
+  if (error.code === '23503') return 'Invalid reference provided'
+  if (error instanceof z.ZodError) {
+    return `Validation error: ${error.errors.map(e => e.message).join(', ')}`
+  }
+  return 'An error occurred while creating the user'
 }
 
 Deno.serve(async (req) => {
@@ -53,11 +76,10 @@ Deno.serve(async (req) => {
 
     // Create the new user
     const requestBody = await req.json()
-    const { email, password, fullName, role, collegeId, department, section, rollNumber } = requestBody
-
-    if (!email || !password || !fullName || !role) {
-      throw new Error('Missing required fields')
-    }
+    
+    // Validate input
+    const validated = createUserSchema.parse(requestBody)
+    const { email, password, fullName, role, collegeId, department, section, rollNumber } = validated
 
     // For college admins, ensure they can only create users for their college
     if (roleData.role === 'admin' && collegeId && collegeId !== roleData.college_id) {
@@ -121,9 +143,8 @@ Deno.serve(async (req) => {
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   } catch (error: any) {
-    console.error('Error creating admin user:', error)
     return new Response(
-      JSON.stringify({ success: false, error: error.message }),
+      JSON.stringify({ success: false, error: getSafeErrorMessage(error) }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
     )
   }

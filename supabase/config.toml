@@ -3,8 +3,5 @@ project_id = "cjpecytbqzronmkodrxi"
 [functions.seed-test-users]
 verify_jwt = false
 
-[functions.create-test-accounts]
-verify_jwt = false
-
 [functions.bulk-create-users]
 verify_jwt = true
