@@ -21,6 +21,7 @@ export type Database = {
           date: string
           id: string
           marked_by: string | null
+          section_id: string | null
           status: string
           student_id: string | null
           subject: string
@@ -31,6 +32,7 @@ export type Database = {
           date: string
           id?: string
           marked_by?: string | null
+          section_id?: string | null
           status: string
           student_id?: string | null
           subject: string
@@ -41,6 +43,7 @@ export type Database = {
           date?: string
           id?: string
           marked_by?: string | null
+          section_id?: string | null
           status?: string
           student_id?: string | null
           subject?: string
@@ -51,6 +54,13 @@ export type Database = {
             columns: ["college_id"]
             isOneToOne: false
             referencedRelation: "colleges"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "sections"
             referencedColumns: ["id"]
           },
         ]
@@ -188,6 +198,76 @@ export type Database = {
         }
         Relationships: []
       }
+      departments: {
+        Row: {
+          code: string
+          college_id: string | null
+          created_at: string | null
+          hod_id: string | null
+          id: string
+          name: string
+          updated_at: string | null
+        }
+        Insert: {
+          code: string
+          college_id?: string | null
+          created_at?: string | null
+          hod_id?: string | null
+          id?: string
+          name: string
+          updated_at?: string | null
+        }
+        Update: {
+          code?: string
+          college_id?: string | null
+          created_at?: string | null
+          hod_id?: string | null
+          id?: string
+          name?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "departments_college_id_fkey"
+            columns: ["college_id"]
+            isOneToOne: false
+            referencedRelation: "colleges"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      faculty_sections: {
+        Row: {
+          created_at: string | null
+          faculty_id: string
+          id: string
+          section_id: string
+          subject: string
+        }
+        Insert: {
+          created_at?: string | null
+          faculty_id: string
+          id?: string
+          section_id: string
+          subject: string
+        }
+        Update: {
+          created_at?: string | null
+          faculty_id?: string
+          id?: string
+          section_id?: string
+          subject?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "faculty_sections_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "sections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notifications: {
         Row: {
           college_id: string | null
@@ -280,25 +360,34 @@ export type Database = {
         Row: {
           college_id: string | null
           created_at: string | null
+          department: string | null
           email: string | null
           full_name: string | null
           id: string
+          roll_number: string | null
+          section: string | null
           updated_at: string | null
         }
         Insert: {
           college_id?: string | null
           created_at?: string | null
+          department?: string | null
           email?: string | null
           full_name?: string | null
           id: string
+          roll_number?: string | null
+          section?: string | null
           updated_at?: string | null
         }
         Update: {
           college_id?: string | null
           created_at?: string | null
+          department?: string | null
           email?: string | null
           full_name?: string | null
           id?: string
+          roll_number?: string | null
+          section?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -445,6 +534,54 @@ export type Database = {
             columns: ["college_id"]
             isOneToOne: false
             referencedRelation: "colleges"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sections: {
+        Row: {
+          college_id: string | null
+          created_at: string | null
+          department_id: string | null
+          id: string
+          name: string
+          semester: number
+          updated_at: string | null
+          year: number
+        }
+        Insert: {
+          college_id?: string | null
+          created_at?: string | null
+          department_id?: string | null
+          id?: string
+          name: string
+          semester: number
+          updated_at?: string | null
+          year: number
+        }
+        Update: {
+          college_id?: string | null
+          created_at?: string | null
+          department_id?: string | null
+          id?: string
+          name?: string
+          semester?: number
+          updated_at?: string | null
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sections_college_id_fkey"
+            columns: ["college_id"]
+            isOneToOne: false
+            referencedRelation: "colleges"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sections_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
             referencedColumns: ["id"]
           },
         ]

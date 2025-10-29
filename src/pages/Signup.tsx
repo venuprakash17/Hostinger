@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { GraduationCap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -15,7 +16,34 @@ export default function Signup() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [rollNumber, setRollNumber] = useState("");
+  const [department, setDepartment] = useState("");
+  const [section, setSection] = useState("");
   const [loading, setLoading] = useState(false);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [sections, setSections] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetchDepartments();
+  }, []);
+
+  useEffect(() => {
+    if (department) {
+      fetchSections();
+    }
+  }, [department]);
+
+  const fetchDepartments = async () => {
+    const { data } = await supabase.from("departments").select("*");
+    if (data) setDepartments(data);
+  };
+
+  const fetchSections = async () => {
+    const { data } = await supabase
+      .from("sections")
+      .select("*")
+      .eq("department_id", department);
+    if (data) setSections(data);
+  };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +69,8 @@ export default function Signup() {
           data: {
             full_name: fullName,
             roll_number: rollNumber,
+            department,
+            section
           }
         }
       });
@@ -48,6 +78,16 @@ export default function Signup() {
       if (error) throw error;
 
       if (data.user) {
+        // Update profile with additional info
+        await supabase
+          .from("profiles")
+          .update({ 
+            department,
+            section,
+            roll_number: rollNumber
+          })
+          .eq("id", data.user.id);
+
         // Assign student role
         const { error: roleError } = await supabase
           .from("user_roles")
@@ -118,6 +158,38 @@ export default function Signup() {
                 onChange={(e) => setRollNumber(e.target.value)}
                 required
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="department">Department</Label>
+              <Select value={department} onValueChange={setDepartment}>
+                <SelectTrigger id="department">
+                  <SelectValue placeholder="Select department" />
+                </SelectTrigger>
+                <SelectContent>
+                  {departments.map(dept => (
+                    <SelectItem key={dept.id} value={dept.id}>
+                      {dept.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="section">Section</Label>
+              <Select value={section} onValueChange={setSection} disabled={!department}>
+                <SelectTrigger id="section">
+                  <SelectValue placeholder="Select section" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sections.map(sec => (
+                    <SelectItem key={sec.id} value={sec.id}>
+                      {sec.name} (Year {sec.year}, Sem {sec.semester})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             
             <div className="space-y-2">

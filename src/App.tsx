@@ -19,6 +19,7 @@ import ManageColleges from "./pages/superadmin/ManageColleges";
 import ManageUsers from "./pages/superadmin/ManageUsers";
 import SuperAdminDashboard from "./pages/superadmin/SuperAdminDashboard";
 import ManageNotifications from "./pages/admin/ManageNotifications";
+import ManageSections from "./pages/admin/ManageSections";
 import ManageQuizzes from "./pages/faculty/ManageQuizzes";
 import ManageAttendance from "./pages/faculty/ManageAttendance";
 import ManageCodingProblems from "./pages/faculty/ManageCodingProblems";
@@ -62,6 +63,7 @@ const App = () => (
           <Route element={<DashboardLayout />}>
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/notifications" element={<ManageNotifications />} />
+            <Route path="/admin/sections" element={<ManageSections />} />
           </Route>
 
           {/* Super Admin Routes */}
