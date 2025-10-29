@@ -52,6 +52,7 @@ const facultyNavItems = [
 
 const adminNavItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/admin/dashboard" },
+  { icon: User, label: "Manage Users", path: "/admin/users" },
   { icon: Bell, label: "Notifications", path: "/admin/notifications" },
   { icon: School, label: "Sections & Faculty", path: "/admin/sections" },
   { icon: FileQuestion, label: "Manage Quizzes", path: "/faculty/quizzes" },

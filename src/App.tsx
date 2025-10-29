@@ -16,6 +16,7 @@ import Attendance from "./pages/Attendance";
 import Analytics from "./pages/Analytics";
 import FacultyDashboard from "./pages/faculty/FacultyDashboard";
 import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminManageUsers from "./pages/admin/ManageUsers";
 import ManageColleges from "./pages/superadmin/ManageColleges";
 import ManageUsers from "./pages/superadmin/ManageUsers";
 import SuperAdminDashboard from "./pages/superadmin/SuperAdminDashboard";
@@ -64,6 +65,7 @@ const App = () => (
           {/* Admin Routes */}
           <Route element={<DashboardLayout />}>
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
+            <Route path="/admin/users" element={<AdminManageUsers />} />
             <Route path="/admin/notifications" element={<ManageNotifications />} />
             <Route path="/admin/sections" element={<ManageSections />} />
           </Route>

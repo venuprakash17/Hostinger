@@ -35,23 +35,37 @@ Deno.serve(async (req) => {
       throw new Error('Unauthorized')
     }
 
-    // Check if user has super_admin role
+    // Check if user has super_admin or admin role
     const { data: roleData, error: roleError } = await supabaseAdmin
       .from('user_roles')
-      .select('role')
+      .select('role, college_id')
       .eq('user_id', user.id)
       .single()
 
-    if (roleError || roleData?.role !== 'super_admin') {
-      throw new Error('Only super admins can create users')
+    if (roleError || !roleData) {
+      throw new Error('Unauthorized - No role found')
+    }
+
+    const isAuthorized = roleData.role === 'super_admin' || roleData.role === 'admin'
+    if (!isAuthorized) {
+      throw new Error('Only super admins and college admins can create users')
     }
 
     // Create the new user
-    const { email, password, fullName, role } = await req.json()
+    const requestBody = await req.json()
+    const { email, password, fullName, role, collegeId, department, section, rollNumber } = requestBody
 
     if (!email || !password || !fullName || !role) {
       throw new Error('Missing required fields')
     }
+
+    // For college admins, ensure they can only create users for their college
+    if (roleData.role === 'admin' && collegeId && collegeId !== roleData.college_id) {
+      throw new Error('College admins can only create users for their own college')
+    }
+
+    // Determine final college_id
+    const finalCollegeId = roleData.role === 'admin' ? roleData.college_id : (collegeId || null)
 
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
@@ -69,10 +83,38 @@ Deno.serve(async (req) => {
       .from('user_roles')
       .insert({ 
         user_id: authData.user.id, 
-        role 
+        role,
+        college_id: finalCollegeId
       })
 
     if (roleInsertError) throw roleInsertError
+
+    // Update profile with additional info for students
+    if (role === 'student') {
+      const { error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .update({
+          department: department || null,
+          section: section || null,
+          roll_number: rollNumber || null,
+          college_id: finalCollegeId
+        })
+        .eq('id', authData.user.id)
+
+      if (profileError) {
+        console.error('Profile update error:', profileError.message)
+      }
+    } else {
+      // Update college_id for all users
+      const { error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .update({ college_id: finalCollegeId })
+        .eq('id', authData.user.id)
+
+      if (profileError) {
+        console.error('Profile update error:', profileError.message)
+      }
+    }
 
     return new Response(
       JSON.stringify({ success: true, userId: authData.user.id }),
