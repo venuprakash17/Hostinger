@@ -617,7 +617,50 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      quiz_questions_student: {
+        Row: {
+          created_at: string | null
+          id: string | null
+          marks: number | null
+          option_a: string | null
+          option_b: string | null
+          option_c: string | null
+          option_d: string | null
+          question: string | null
+          quiz_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string | null
+          marks?: number | null
+          option_a?: string | null
+          option_b?: string | null
+          option_c?: string | null
+          option_d?: string | null
+          question?: string | null
+          quiz_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string | null
+          marks?: number | null
+          option_a?: string | null
+          option_b?: string | null
+          option_c?: string | null
+          option_d?: string | null
+          question?: string | null
+          quiz_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quiz_questions_quiz_id_fkey"
+            columns: ["quiz_id"]
+            isOneToOne: false
+            referencedRelation: "quizzes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       has_role: {
