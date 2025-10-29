@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Calendar, UserCheck, UserX, Clock } from "lucide-react";
+import { ExcelImport } from "@/components/ExcelImport";
 
 interface Student {
   id: string;
@@ -74,6 +75,29 @@ export default function ManageAttendance() {
     }
   };
 
+  const handleExcelImport = async (data: any[]) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    // Map Excel data to attendance records
+    const records = data.map(row => ({
+      student_id: row.student_id || row.StudentID,
+      subject: row.subject || row.Subject,
+      date: row.date || row.Date,
+      status: row.status || row.Status || 'present',
+      marked_by: user?.id
+    })).filter(record => record.student_id && record.subject && record.date);
+
+    if (records.length === 0) {
+      throw new Error("No valid records found in Excel file");
+    }
+
+    const { error } = await supabase
+      .from("attendance")
+      .upsert(records);
+
+    if (error) throw error;
+  };
+
   const markAll = (status: string) => {
     const newAttendance: Record<string, string> = {};
     students.forEach(student => {
@@ -83,8 +107,15 @@ export default function ManageAttendance() {
   };
 
   return (
-    <div className="container mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-6">Mark Attendance</h1>
+    <div className="container mx-auto p-6 space-y-6">
+      <h1 className="text-3xl font-bold">Mark Attendance</h1>
+
+      <ExcelImport
+        onImport={handleExcelImport}
+        templateColumns={['student_id', 'subject', 'date', 'status']}
+        title="Import Attendance from Excel"
+        description="Upload attendance records in bulk using Excel"
+      />
 
       <Card className="mb-6">
         <CardHeader>
