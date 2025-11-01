@@ -10,6 +10,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { resumeAnalytics } from "@/lib/mockData";
 import { toast } from "sonner";
+import { BuildTab } from "@/components/resume/BuildTab";
 
 export default function Resume() {
   const [activeTab, setActiveTab] = useState("build");
@@ -55,44 +56,7 @@ export default function Resume() {
 
         {/* Build from Profile */}
         <TabsContent value="build" className="space-y-4">
-          <Card className="shadow-card">
-            <CardHeader>
-              <CardTitle>Build Resume from Profile</CardTitle>
-              <CardDescription>Generate your resume automatically using your profile information</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Full Name</Label>
-                  <Input placeholder="John Doe" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Email</Label>
-                  <Input type="email" placeholder="john@example.com" />
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <Label>Professional Summary</Label>
-                <Textarea 
-                  placeholder="Brief overview of your skills and experience..."
-                  rows={4}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Key Skills</Label>
-                <Input placeholder="Python, React, Machine Learning..." />
-              </div>
-
-              <div className="flex gap-2">
-                <Button className="flex-1 bg-gradient-primary" onClick={() => handleGenerate('Resume')}>
-                  Generate Resume
-                </Button>
-                <Button variant="outline">Preview</Button>
-              </div>
-            </CardContent>
-          </Card>
+          <BuildTab />
         </TabsContent>
 
         {/* ATS Score */}

@@ -538,6 +538,63 @@ export type Database = {
           },
         ]
       }
+      resume_analytics: {
+        Row: {
+          action_details: Json | null
+          action_type: string
+          created_at: string | null
+          id: string
+          user_id: string
+        }
+        Insert: {
+          action_details?: Json | null
+          action_type: string
+          created_at?: string | null
+          id?: string
+          user_id: string
+        }
+        Update: {
+          action_details?: Json | null
+          action_type?: string
+          created_at?: string | null
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      resume_versions: {
+        Row: {
+          ats_score: number | null
+          file_url: string | null
+          generated_at: string | null
+          id: string
+          metadata: Json | null
+          resume_type: string
+          target_role: string | null
+          user_id: string
+        }
+        Insert: {
+          ats_score?: number | null
+          file_url?: string | null
+          generated_at?: string | null
+          id?: string
+          metadata?: Json | null
+          resume_type: string
+          target_role?: string | null
+          user_id: string
+        }
+        Update: {
+          ats_score?: number | null
+          file_url?: string | null
+          generated_at?: string | null
+          id?: string
+          metadata?: Json | null
+          resume_type?: string
+          target_role?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       sections: {
         Row: {
           college_id: string | null
@@ -585,6 +642,282 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      student_achievements: {
+        Row: {
+          achievement_date: string | null
+          created_at: string | null
+          description: string | null
+          display_order: number | null
+          id: string
+          issuing_body: string | null
+          title: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          achievement_date?: string | null
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          id?: string
+          issuing_body?: string | null
+          title: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          achievement_date?: string | null
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          id?: string
+          issuing_body?: string | null
+          title?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      student_certifications: {
+        Row: {
+          certification_name: string
+          created_at: string | null
+          credential_url: string | null
+          date_issued: string | null
+          display_order: number | null
+          id: string
+          issuing_organization: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          certification_name: string
+          created_at?: string | null
+          credential_url?: string | null
+          date_issued?: string | null
+          display_order?: number | null
+          id?: string
+          issuing_organization: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          certification_name?: string
+          created_at?: string | null
+          credential_url?: string | null
+          date_issued?: string | null
+          display_order?: number | null
+          id?: string
+          issuing_organization?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      student_education: {
+        Row: {
+          cgpa_percentage: string | null
+          created_at: string | null
+          degree: string
+          display_order: number | null
+          end_date: string | null
+          field_of_study: string | null
+          id: string
+          institution_name: string
+          is_current: boolean | null
+          relevant_coursework: string | null
+          start_date: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          cgpa_percentage?: string | null
+          created_at?: string | null
+          degree: string
+          display_order?: number | null
+          end_date?: string | null
+          field_of_study?: string | null
+          id?: string
+          institution_name: string
+          is_current?: boolean | null
+          relevant_coursework?: string | null
+          start_date?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          cgpa_percentage?: string | null
+          created_at?: string | null
+          degree?: string
+          display_order?: number | null
+          end_date?: string | null
+          field_of_study?: string | null
+          id?: string
+          institution_name?: string
+          is_current?: boolean | null
+          relevant_coursework?: string | null
+          start_date?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      student_extracurricular: {
+        Row: {
+          activity_organization: string
+          created_at: string | null
+          description: string | null
+          display_order: number | null
+          duration_end: string | null
+          duration_start: string | null
+          id: string
+          role: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          activity_organization: string
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          duration_end?: string | null
+          duration_start?: string | null
+          id?: string
+          role?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          activity_organization?: string
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          duration_end?: string | null
+          duration_start?: string | null
+          id?: string
+          role?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      student_profiles: {
+        Row: {
+          address_city: string | null
+          created_at: string | null
+          email: string | null
+          father_name: string | null
+          father_number: string | null
+          full_name: string | null
+          github_portfolio: string | null
+          id: string
+          linkedin_profile: string | null
+          phone_number: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          address_city?: string | null
+          created_at?: string | null
+          email?: string | null
+          father_name?: string | null
+          father_number?: string | null
+          full_name?: string | null
+          github_portfolio?: string | null
+          id?: string
+          linkedin_profile?: string | null
+          phone_number?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          address_city?: string | null
+          created_at?: string | null
+          email?: string | null
+          father_name?: string | null
+          father_number?: string | null
+          full_name?: string | null
+          github_portfolio?: string | null
+          id?: string
+          linkedin_profile?: string | null
+          phone_number?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      student_projects: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          display_order: number | null
+          duration_end: string | null
+          duration_start: string | null
+          github_demo_link: string | null
+          id: string
+          project_title: string
+          role_contribution: string | null
+          technologies_used: string[] | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          duration_end?: string | null
+          duration_start?: string | null
+          github_demo_link?: string | null
+          id?: string
+          project_title: string
+          role_contribution?: string | null
+          technologies_used?: string[] | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          duration_end?: string | null
+          duration_start?: string | null
+          github_demo_link?: string | null
+          id?: string
+          project_title?: string
+          role_contribution?: string | null
+          technologies_used?: string[] | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      student_skills: {
+        Row: {
+          category: string
+          created_at: string | null
+          id: string
+          skills: string[]
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          category: string
+          created_at?: string | null
+          id?: string
+          skills: string[]
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          id?: string
+          skills?: string[]
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       user_roles: {
         Row: {
