@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Trash2, Plus, GripVertical } from "lucide-react";
+import { Trash2, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -149,11 +149,10 @@ export function HobbiesForm() {
       <CardContent className="space-y-4">
         {hobbies.map((hobby, index) => (
           <div key={index} className="space-y-3 p-4 border rounded-lg relative">
-            <div className="flex items-start gap-2">
-              <GripVertical className="h-5 w-5 text-muted-foreground mt-2" />
+            <div className="flex items-start gap-3">
               <div className="flex-1 space-y-3">
                 <div>
-                  <Label>Hobby/Interest Name *</Label>
+                  <Label>Hobby or Interest</Label>
                   <Input
                     placeholder="e.g., Photography, Chess, Blogging"
                     value={hobby.hobby_name}
@@ -163,7 +162,7 @@ export function HobbiesForm() {
                 <div>
                   <Label>Description (Optional)</Label>
                   <Textarea
-                    placeholder="Brief description of your hobby or achievement in this area"
+                    placeholder="Brief description (optional)"
                     value={hobby.description}
                     onChange={(e) => handleChange(index, "description", e.target.value)}
                     rows={2}
@@ -174,7 +173,7 @@ export function HobbiesForm() {
                 variant="ghost"
                 size="icon"
                 onClick={() => handleRemove(index)}
-                className="text-destructive"
+                className="text-destructive hover:text-destructive"
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
