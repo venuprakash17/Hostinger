@@ -50,15 +50,42 @@ export function ATSTab() {
     setIsAnalyzing(true);
 
     try {
-      // Read file content
       let resumeText = "";
       
       if (file.type === 'text/plain') {
         resumeText = await file.text();
       } else {
-        // For PDF and DOC files, we'll need to send the file to be parsed
-        // For now, show a message asking user to paste text
-        toast.error("Please paste your resume text in the text area below for analysis");
+        // For PDF and DOC files, upload to storage and parse
+        const fileName = `resume-${Date.now()}-${file.name}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('resumes')
+          .upload(fileName, file);
+
+        if (uploadError) {
+          // If bucket doesn't exist, show helpful message
+          if (uploadError.message.includes('not found')) {
+            toast.error("Storage not configured. Please use the text area to paste your resume.");
+            setIsAnalyzing(false);
+            return;
+          }
+          throw uploadError;
+        }
+
+        // Get public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('resumes')
+          .getPublicUrl(fileName);
+
+        // For PDF/DOC, we need to extract text - for now, show message
+        toast.info("Extracting text from document...");
+        
+        // Since we don't have a document parser integrated yet, 
+        // ask user to use text area instead
+        toast.error("PDF/DOC parsing not yet available. Please copy your resume text and paste it in the text area below.");
+        
+        // Clean up uploaded file
+        await supabase.storage.from('resumes').remove([fileName]);
+        
         setIsAnalyzing(false);
         return;
       }
