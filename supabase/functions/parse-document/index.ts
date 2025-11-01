@@ -61,46 +61,65 @@ serve(async (req) => {
     if (fileExtension === 'txt') {
       // For text files, just read the content
       extractedText = await fileData.text();
-    } else if (fileExtension === 'pdf') {
-      // For PDF files, use a PDF parsing service
-      // We'll use pdf.js via npm.reversehttp.com which provides a simple API
+    } else if (fileExtension === 'pdf' || fileExtension === 'doc' || fileExtension === 'docx') {
+      // Use Lovable AI to extract text from PDF and DOC files
+      console.log('Using Lovable AI to extract text from document');
+      
       const arrayBuffer = await fileData.arrayBuffer();
       const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
       
-      // Use a simple PDF text extraction approach
-      // For production, you might want to use a dedicated service
+      const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
+      if (!lovableApiKey) {
+        throw new Error('Lovable AI API key not configured');
+      }
+
       try {
-        const pdfResponse = await fetch('https://api.pdf.co/v1/pdf/convert/to/text', {
+        const aiResponse = await fetch('https://api.lovable.app/v1/ai/completions', {
           method: 'POST',
           headers: {
+            'Authorization': `Bearer ${lovableApiKey}`,
             'Content-Type': 'application/json',
-            'x-api-key': Deno.env.get('PDF_CO_API_KEY') || 'demo', // Demo key for testing
           },
           body: JSON.stringify({
-            url: '', // We'll use inline base64 instead
-            inline: true,
-            file: base64,
+            model: 'google/gemini-2.5-flash',
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: 'Extract all text content from this document. Return ONLY the extracted text, no additional commentary or formatting. Preserve the structure and content exactly as it appears in the document.'
+                  },
+                  {
+                    type: 'image_url',
+                    image_url: {
+                      url: `data:application/${fileExtension};base64,${base64}`
+                    }
+                  }
+                ]
+              }
+            ],
+            max_tokens: 4000,
+            temperature: 0
           })
         });
 
-        if (pdfResponse.ok) {
-          const result = await pdfResponse.json();
-          extractedText = result.body || '';
-        } else {
-          // Fallback: Return a message asking user to paste text
-          throw new Error('PDF parsing service unavailable');
+        if (!aiResponse.ok) {
+          const errorData = await aiResponse.text();
+          console.error('Lovable AI error response:', errorData);
+          throw new Error(`Lovable AI request failed: ${aiResponse.status}`);
         }
-      } catch (pdfError) {
-        console.error('PDF parsing error:', pdfError);
-        // If PDF parsing fails, return a helpful error
-        throw new Error('Unable to parse PDF. Please copy the text and use the text area instead.');
+
+        const aiResult = await aiResponse.json();
+        extractedText = aiResult.choices[0].message.content.trim();
+        
+        console.log(`Extracted ${extractedText.length} characters using AI`);
+      } catch (aiError) {
+        console.error('AI extraction error:', aiError);
+        throw new Error('Unable to extract text from document. Please copy the text and use the text area instead.');
       }
-    } else if (fileExtension === 'doc' || fileExtension === 'docx') {
-      // For DOC/DOCX files, these require more complex parsing
-      // For now, we'll return a message asking user to convert or paste text
-      throw new Error('DOC/DOCX parsing not yet supported. Please convert to PDF or paste the text directly.');
     } else {
-      throw new Error('Unsupported file format');
+      throw new Error('Unsupported file format. Please use TXT, PDF, DOC, or DOCX files.');
     }
 
     // Clean up the file from storage after extraction
