@@ -1,25 +1,14 @@
 import { useState } from "react";
-import { FileText, Target, Sparkles, Briefcase, Mail, BarChart } from "lucide-react";
+import { FileText, Target, Briefcase, Mail, BarChart } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
-import { resumeAnalytics } from "@/lib/mockData";
-import { toast } from "sonner";
 import { BuildTab } from "@/components/resume/BuildTab";
 import { ATSTab } from "@/components/resume/ATSTab";
 import { RoleBasedTab } from "@/components/resume/RoleBasedTab";
+import { CoverLetterTab } from "@/components/resume/CoverLetterTab";
 
 export default function Resume() {
   const [activeTab, setActiveTab] = useState("build");
-
-  const handleGenerate = (type: string) => {
-    toast.success(`${type} generation started!`);
-  };
 
   return (
     <div className="space-y-6">
@@ -29,7 +18,7 @@ export default function Resume() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3 md:grid-cols-6 gap-1">
+        <TabsList className="grid w-full grid-cols-3 md:grid-cols-5 gap-1">
           <TabsTrigger value="build" className="gap-1 sm:gap-2">
             <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
             <span className="hidden sm:inline truncate">Build</span>
@@ -37,10 +26,6 @@ export default function Resume() {
           <TabsTrigger value="ats" className="gap-1 sm:gap-2">
             <Target className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
             <span className="hidden sm:inline truncate">ATS Score</span>
-          </TabsTrigger>
-          <TabsTrigger value="enhance" className="gap-1 sm:gap-2">
-            <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
-            <span className="hidden sm:inline truncate">AI Enhance</span>
           </TabsTrigger>
           <TabsTrigger value="role" className="gap-1 sm:gap-2">
             <Briefcase className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
@@ -66,36 +51,6 @@ export default function Resume() {
           <ATSTab />
         </TabsContent>
 
-        {/* AI Enhance */}
-        <TabsContent value="enhance" className="space-y-4">
-          <Card className="shadow-card">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-secondary" />
-                AI-Powered Resume Enhancement
-              </CardTitle>
-              <CardDescription>Let AI improve your resume content and formatting</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-lg bg-muted p-4 space-y-2">
-                <h4 className="font-semibold text-foreground">AI Suggestions</h4>
-                <ul className="space-y-2">
-                  {resumeAnalytics.aiSuggestions.map((suggestion, idx) => (
-                    <li key={idx} className="flex items-start gap-2 text-sm">
-                      <Sparkles className="h-4 w-4 text-secondary mt-0.5 flex-shrink-0" />
-                      <span className="text-muted-foreground">{suggestion}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <Button className="w-full bg-gradient-secondary" onClick={() => handleGenerate('AI Enhancement')}>
-                <Sparkles className="h-4 w-4 mr-2" />
-                Apply AI Enhancements
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         {/* Role-Based Resume */}
         <TabsContent value="role" className="space-y-4">
           <RoleBasedTab />
@@ -103,34 +58,7 @@ export default function Resume() {
 
         {/* Cover Letter */}
         <TabsContent value="cover" className="space-y-4">
-          <Card className="shadow-card">
-            <CardHeader>
-              <CardTitle>Generate Cover Letter</CardTitle>
-              <CardDescription>Create a compelling cover letter for your application</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Company Name</Label>
-                  <Input placeholder="Google" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Position</Label>
-                  <Input placeholder="Software Engineer" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Why are you interested?</Label>
-                <Textarea 
-                  placeholder="Explain your interest in this role and company..."
-                  rows={4}
-                />
-              </div>
-              <Button className="w-full bg-gradient-secondary" onClick={() => handleGenerate('Cover Letter')}>
-                Generate Cover Letter
-              </Button>
-            </CardContent>
-          </Card>
+          <CoverLetterTab />
         </TabsContent>
 
         {/* Analytics */}
