@@ -34,18 +34,19 @@ export function BuildTab() {
     saveProfile,
   } = useStudentProfile();
 
-  // Calculate profile completeness
+  // Calculate profile completeness (only required sections)
   const calculateCompleteness = () => {
     let completed = 0;
-    let total = 7;
+    let total = 4; // Only count required sections
 
+    // Required sections
     if (profile?.full_name && profile?.email && profile?.phone_number) completed++;
     if (education.length > 0) completed++;
     if (projects.length > 0) completed++;
     if (skills.length > 0) completed++;
-    if (certifications.length > 0) completed++;
-    if (achievements.length > 0) completed++;
-    if (extracurricular.length > 0) completed++;
+
+    // Optional sections (certifications, achievements, extracurricular)
+    // Not counted towards completeness
 
     return Math.round((completed / total) * 100);
   };
@@ -184,11 +185,12 @@ ${resumeContent.formattedAchievements?.length ?
       {/* Instructions Alert */}
       <Alert>
         <AlertDescription>
-          Fill in all sections below to create your comprehensive resume profile. You can edit any section at any time.
-          Each section supports multiple entries where applicable (education, projects, skills, etc.).
+          Fill in the required sections below to create your resume profile. You can edit any section at any time.
+          <strong className="block mt-2">Required:</strong> Personal Info, Education, Projects, Skills
+          <strong className="block mt-1">Optional:</strong> Certifications, Achievements, Extracurricular
           {completeness < 100 && (
             <strong className="block mt-2 text-primary">
-              Complete all sections ({completeness}% done) to unlock the "Generate Resume PDF" button.
+              Complete required sections ({completeness}% done) to unlock the "Generate Resume PDF" button.
             </strong>
           )}
         </AlertDescription>
