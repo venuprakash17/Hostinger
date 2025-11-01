@@ -8,9 +8,9 @@ import { ExtracurricularForm } from "./ExtracurricularForm";
 import { ResumePreviewDialog } from "./ResumePreviewDialog";
 import { useStudentProfile } from "@/hooks/useStudentProfile";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, FileText } from "lucide-react";
+import { Loader2, FileText, Lightbulb } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -93,40 +93,52 @@ export function BuildTab() {
     if (!resumeContent || !profile) return;
     
     try {
-      // Create a simple text representation for now
-      // In production, you'd use @react-pdf/renderer which is already installed
+      // Create a clean resume text without recommendations
       const resumeText = `
 ${profile.full_name}
 ${profile.email} | ${profile.phone_number}
 ${profile.linkedin_profile ? `LinkedIn: ${profile.linkedin_profile}` : ''}
 ${profile.github_portfolio ? `GitHub: ${profile.github_portfolio}` : ''}
 
-SUMMARY
+PROFESSIONAL SUMMARY
 ${resumeContent.summary || 'Professional with strong technical skills and experience.'}
 
 EDUCATION
 ${resumeContent.formattedEducation?.map((edu: any) => 
-  `${edu.degree || edu.institution}\n${edu.field_of_study || ''}\n${edu.start_date} - ${edu.end_date || 'Present'}`
+  `${edu.degree || edu.institution_name || ''}
+${edu.institution_name || edu.field_of_study || ''}
+${edu.start_date} - ${edu.is_current ? 'Present' : edu.end_date || 'Present'}
+${edu.cgpa_percentage ? `CGPA: ${edu.cgpa_percentage}` : ''}`
 ).join('\n\n') || ''}
 
 SKILLS
-${resumeContent.formattedSkills ? JSON.stringify(resumeContent.formattedSkills, null, 2) : ''}
+${resumeContent.formattedSkills ? Object.entries(resumeContent.formattedSkills).map(([category, skills]: [string, any]) => 
+  `${category.toUpperCase()}: ${Array.isArray(skills) ? skills.join(', ') : skills}`
+).join('\n') : ''}
 
 PROJECTS
 ${resumeContent.formattedProjects?.map((proj: any) => 
-  `${proj.title}\n${proj.description}\n${proj.technologies_used?.join(', ') || ''}`
+  `${proj.project_title || proj.title}
+${proj.description || ''}
+Technologies: ${Array.isArray(proj.technologies_used) ? proj.technologies_used.join(', ') : proj.technologies_used || ''}
+${proj.duration_start && proj.duration_end ? `Duration: ${proj.duration_start} - ${proj.duration_end}` : ''}`
 ).join('\n\n') || ''}
 
 ${resumeContent.formattedCertifications?.length ? 
   `CERTIFICATIONS\n${resumeContent.formattedCertifications.map((cert: any) => 
-    `${cert.certification_name} - ${cert.issuing_organization}`
+    `${cert.certification_name} - ${cert.issuing_organization}${cert.issue_date ? ` (${cert.issue_date})` : ''}`
   ).join('\n')}` : ''}
 
 ${resumeContent.formattedAchievements?.length ?
   `ACHIEVEMENTS\n${resumeContent.formattedAchievements.map((ach: any) => 
     `• ${ach.achievement_title}: ${ach.description}`
   ).join('\n')}` : ''}
-`;
+
+${resumeContent.formattedExtracurricular?.length ?
+  `EXTRACURRICULAR ACTIVITIES\n${resumeContent.formattedExtracurricular.map((extra: any) => 
+    `${extra.activity_name}${extra.role ? ` - ${extra.role}` : ''}${extra.description ? `\n${extra.description}` : ''}`
+  ).join('\n\n')}` : ''}
+`.trim();
 
       // Create blob and download
       const blob = new Blob([resumeText], { type: 'text/plain' });
@@ -262,6 +274,31 @@ ${resumeContent.formattedAchievements?.length ?
         profile={profile}
         onDownload={handleDownloadPDF}
       />
+
+      {/* AI Suggestions Section - Separate from Resume */}
+      {resumeContent?.recommendations && resumeContent.recommendations.length > 0 && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Lightbulb className="w-5 h-5 text-primary" />
+              AI Recommendations for Improvement
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-4">
+              These suggestions can help enhance your resume. They are not included in the downloaded PDF.
+            </p>
+            <ul className="space-y-2">
+              {resumeContent.recommendations.map((rec: string, idx: number) => (
+                <li key={idx} className="flex items-start gap-3 text-sm">
+                  <span className="text-primary font-bold mt-0.5">•</span>
+                  <span>{rec}</span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

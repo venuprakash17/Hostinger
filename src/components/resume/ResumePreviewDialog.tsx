@@ -182,21 +182,6 @@ export function ResumePreviewDialog({
               </div>
             )}
 
-          {/* Recommendations */}
-          {resumeContent.recommendations &&
-            resumeContent.recommendations.length > 0 && (
-              <div className="bg-muted/50 p-4 rounded-lg">
-                <h3 className="font-semibold mb-2">AI Recommendations</h3>
-                <ul className="space-y-1 text-sm">
-                  {resumeContent.recommendations.map((rec: string, idx: number) => (
-                    <li key={idx} className="flex items-start gap-2">
-                      <span className="text-primary">•</span>
-                      <span className="text-muted-foreground">{rec}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
         </div>
 
         <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
