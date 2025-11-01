@@ -5,3 +5,12 @@ verify_jwt = false
 
 [functions.bulk-create-users]
 verify_jwt = true
+
+[functions.generate-resume]
+verify_jwt = true
+
+[functions.analyze-ats]
+verify_jwt = true
+
+[functions.generate-cover-letter]
+verify_jwt = true

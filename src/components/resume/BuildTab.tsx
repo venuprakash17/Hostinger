@@ -5,14 +5,23 @@ import { SkillsForm } from "./SkillsForm";
 import { CertificationsForm } from "./CertificationsForm";
 import { AchievementsForm } from "./AchievementsForm";
 import { ExtracurricularForm } from "./ExtracurricularForm";
+import { ResumePreviewDialog } from "./ResumePreviewDialog";
 import { useStudentProfile } from "@/hooks/useStudentProfile";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import { useState } from "react";
 
 export function BuildTab() {
+  const { toast } = useToast();
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [resumeContent, setResumeContent] = useState<any>(null);
+  
   const {
     profile,
     education,
@@ -42,6 +51,50 @@ export function BuildTab() {
   };
 
   const completeness = calculateCompleteness();
+
+  const handleGenerateResume = async () => {
+    try {
+      setIsGenerating(true);
+      
+      const { data, error } = await supabase.functions.invoke("generate-resume", {
+        body: { targetRole: null },
+      });
+
+      if (error) throw error;
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setResumeContent({
+        ...data.resumeContent,
+        profile: data.profile,
+      });
+      setShowPreview(true);
+      
+      toast({
+        title: "Resume generated successfully!",
+        description: `ATS Score: ${data.resumeContent.atsScore || "N/A"}/100`,
+      });
+    } catch (error: any) {
+      console.error("Error generating resume:", error);
+      toast({
+        title: "Failed to generate resume",
+        description: error.message || "Please try again later",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleDownloadPDF = () => {
+    // TODO: Implement PDF download using react-pdf or similar
+    toast({
+      title: "PDF Download",
+      description: "PDF generation will be implemented soon",
+    });
+  };
 
   if (isLoading) {
     return (
@@ -112,19 +165,40 @@ export function BuildTab() {
             <div className="text-center space-y-4">
               <h3 className="text-xl font-semibold">Ready to Generate Your Resume!</h3>
               <p className="text-white/90">
-                Your profile is complete. You can now generate a professional ATS-friendly resume.
+                Your profile is complete. Generate a professional ATS-friendly resume now.
               </p>
               <Button
                 size="lg"
                 variant="secondary"
                 className="w-full md:w-auto"
+                onClick={handleGenerateResume}
+                disabled={isGenerating}
               >
-                Generate Resume PDF
+                {isGenerating ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <FileText className="w-5 h-5 mr-2" />
+                    Generate Resume PDF
+                  </>
+                )}
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
+
+      {/* Resume Preview Dialog */}
+      <ResumePreviewDialog
+        open={showPreview}
+        onOpenChange={setShowPreview}
+        resumeContent={resumeContent}
+        profile={profile}
+        onDownload={handleDownloadPDF}
+      />
     </div>
   );
 }
