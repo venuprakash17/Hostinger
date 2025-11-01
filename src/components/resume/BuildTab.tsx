@@ -59,6 +59,9 @@ export function BuildTab() {
     try {
       setIsGenerating(true);
       
+      console.log("Current education data:", education);
+      console.log("Current profile data:", profile);
+      
       const { data, error } = await supabase.functions.invoke("generate-resume", {
         body: { targetRole: null },
       });
@@ -68,6 +71,9 @@ export function BuildTab() {
       if (data.error) {
         throw new Error(data.error);
       }
+
+      console.log("Generated resume content:", data.resumeContent);
+      console.log("Formatted education:", data.resumeContent.formattedEducation);
 
       setResumeContent({
         ...data.resumeContent,
