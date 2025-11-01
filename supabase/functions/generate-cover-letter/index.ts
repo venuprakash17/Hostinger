@@ -52,9 +52,9 @@ serve(async (req) => {
       supabase.from("student_skills").select("*").eq("user_id", user.id),
     ]);
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY not configured");
+    const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY");
+    if (!GOOGLE_AI_API_KEY) {
+      throw new Error("GOOGLE_AI_API_KEY not configured");
     }
 
     const systemPrompt = `You are a professional cover letter writer. Create compelling, personalized cover letters that:
@@ -86,20 +86,23 @@ Education: ${JSON.stringify(educationRes.data || [])}
 Recent Projects: ${JSON.stringify(projectsRes.data || [])}
 Skills: ${JSON.stringify(skillsRes.data || [])}`;
 
-    console.log("Calling Lovable AI for cover letter generation...");
+    console.log("Calling Google AI Studio for cover letter generation...");
 
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GOOGLE_AI_API_KEY}`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
+        contents: [{
+          parts: [{
+            text: `${systemPrompt}\n\n${userPrompt}`
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 1024,
+        }
       }),
     });
 
@@ -110,7 +113,7 @@ Skills: ${JSON.stringify(skillsRes.data || [])}`;
     }
 
     const aiData = await aiResponse.json();
-    const content = aiData.choices[0].message.content;
+    const content = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
     console.log("AI Response received");
 

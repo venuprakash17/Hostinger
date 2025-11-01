@@ -34,9 +34,9 @@ serve(async (req) => {
       throw new Error("Resume text is required");
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY not configured");
+    const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY");
+    if (!GOOGLE_AI_API_KEY) {
+      throw new Error("GOOGLE_AI_API_KEY not configured");
     }
 
     const systemPrompt = `You are an ATS (Applicant Tracking System) analyzer expert. 
@@ -71,20 +71,23 @@ Return a JSON object with:
 
     const userPrompt = `Analyze this resume for ATS compatibility:\n\n${resumeText}`;
 
-    console.log("Calling Lovable AI for ATS analysis...");
+    console.log("Calling Google AI Studio for ATS analysis...");
 
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GOOGLE_AI_API_KEY}`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
+        contents: [{
+          parts: [{
+            text: `${systemPrompt}\n\n${userPrompt}`
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 1536,
+        }
       }),
     });
 
@@ -95,7 +98,7 @@ Return a JSON object with:
     }
 
     const aiData = await aiResponse.json();
-    const analysisContent = aiData.choices[0].message.content;
+    const analysisContent = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
     console.log("AI Analysis received");
 
