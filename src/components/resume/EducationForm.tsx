@@ -60,7 +60,16 @@ export function EducationForm({ education }: EducationFormProps) {
         toast({ title: "Education added successfully" });
       }
 
-      reset();
+      reset({
+        institution_name: '',
+        degree: '',
+        field_of_study: '',
+        start_date: '',
+        end_date: '',
+        cgpa_percentage: '',
+        relevant_coursework: '',
+        is_current: false,
+      });
       setIsAdding(false);
       queryClient.invalidateQueries({ queryKey: ["studentEducation"] });
     } catch (error: any) {
@@ -74,7 +83,13 @@ export function EducationForm({ education }: EducationFormProps) {
 
   const handleEdit = (edu: Education) => {
     setEditingId(edu.id!);
-    reset(edu);
+    // Format dates back to YYYY-MM for the month input
+    const formattedEdu = {
+      ...edu,
+      start_date: edu.start_date ? edu.start_date.substring(0, 7) : undefined,
+      end_date: edu.end_date ? edu.end_date.substring(0, 7) : undefined,
+    };
+    reset(formattedEdu);
     setIsAdding(true);
   };
 
@@ -100,7 +115,16 @@ export function EducationForm({ education }: EducationFormProps) {
   const handleCancel = () => {
     setIsAdding(false);
     setEditingId(null);
-    reset();
+    reset({
+      institution_name: '',
+      degree: '',
+      field_of_study: '',
+      start_date: '',
+      end_date: '',
+      cgpa_percentage: '',
+      relevant_coursework: '',
+      is_current: false,
+    });
   };
 
   return (
