@@ -55,8 +55,16 @@ export function ATSTab() {
       if (file.type === 'text/plain') {
         resumeText = await file.text();
       } else {
-        // For PDF and DOC files, upload to storage and parse
-        const fileName = `resume-${Date.now()}-${file.name}`;
+        // Get current user ID
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          toast.error("Please log in to upload files");
+          setIsAnalyzing(false);
+          return;
+        }
+
+        // For PDF and DOC files, upload to storage with user folder structure
+        const fileName = `${user.id}/resume-${Date.now()}-${file.name}`;
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('resumes')
           .upload(fileName, file);
