@@ -66,11 +66,6 @@ serve(async (req) => {
     };
 
     // Use Lovable AI to enhance and format resume content
-    const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY");
-    if (!GOOGLE_AI_API_KEY) {
-      throw new Error("GOOGLE_AI_API_KEY not configured");
-    }
-
     const systemPrompt = `You are an expert resume writer and ATS optimization specialist. 
 Your task is to create an ATS-friendly resume in a structured format that can be easily converted to PDF.
 Focus on:
@@ -80,11 +75,11 @@ Focus on:
 - Professional formatting
 - ATS-compatible structure
 
-Return a JSON object with the following structure:
+Return ONLY a valid JSON object with the following structure:
 {
   "summary": "Professional summary paragraph",
   "formattedEducation": [enhanced education entries],
-  "formattedProjects": [enhanced project descriptions],
+  "formattedProjects": [enhanced project descriptions with bullet points],
   "formattedSkills": {organized skills by category},
   "formattedCertifications": [formatted certifications],
   "formattedAchievements": [formatted achievements],
@@ -95,34 +90,26 @@ Return a JSON object with the following structure:
 
     const userPrompt = `Create an ATS-optimized resume ${targetRole ? `tailored for ${targetRole} role` : ""} using this data:\n\n${JSON.stringify(resumeData, null, 2)}`;
 
-    console.log("Calling Google AI Studio for resume generation...");
+    console.log("Calling Lovable AI for resume generation...");
     
-    const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GOOGLE_AI_API_KEY}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    const aiResponse = await supabase.functions.invoke("ai-chat", {
+      body: {
+        model: "google/gemini-2.5-flash",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 2048,
       },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: `${systemPrompt}\n\n${userPrompt}`
-          }]
-        }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 2048,
-        }
-      }),
     });
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error("AI API Error:", aiResponse.status, errorText);
-      throw new Error(`AI API error: ${aiResponse.status}`);
+    if (aiResponse.error) {
+      console.error("AI API Error:", aiResponse.error);
+      throw new Error(`AI API error: ${aiResponse.error.message || "Unknown error"}`);
     }
 
-    const aiData = await aiResponse.json();
-    const enhancedContent = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const enhancedContent = aiResponse.data?.choices?.[0]?.message?.content || "";
     
     console.log("AI Response received");
 

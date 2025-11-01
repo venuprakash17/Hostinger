@@ -52,11 +52,6 @@ serve(async (req) => {
       supabase.from("student_skills").select("*").eq("user_id", user.id),
     ]);
 
-    const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY");
-    if (!GOOGLE_AI_API_KEY) {
-      throw new Error("GOOGLE_AI_API_KEY not configured");
-    }
-
     const systemPrompt = `You are a professional cover letter writer. Create compelling, personalized cover letters that:
 - Are concise (3-4 paragraphs, ~300 words)
 - Show genuine interest and research about the company
@@ -66,7 +61,7 @@ serve(async (req) => {
 - Use professional yet personable tone
 - Are ATS-friendly
 
-Return a JSON object with:
+Return ONLY a valid JSON object with:
 {
   "coverLetter": "The complete cover letter text with proper formatting",
   "subject": "Suggested email subject line",
@@ -86,34 +81,26 @@ Education: ${JSON.stringify(educationRes.data || [])}
 Recent Projects: ${JSON.stringify(projectsRes.data || [])}
 Skills: ${JSON.stringify(skillsRes.data || [])}`;
 
-    console.log("Calling Google AI Studio for cover letter generation...");
+    console.log("Calling Lovable AI for cover letter generation...");
 
-    const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GOOGLE_AI_API_KEY}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    const aiResponse = await supabase.functions.invoke("ai-chat", {
+      body: {
+        model: "google/gemini-2.5-flash",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 1024,
       },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: `${systemPrompt}\n\n${userPrompt}`
-          }]
-        }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1024,
-        }
-      }),
     });
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error("AI API Error:", aiResponse.status, errorText);
-      throw new Error(`AI API error: ${aiResponse.status}`);
+    if (aiResponse.error) {
+      console.error("AI API Error:", aiResponse.error);
+      throw new Error(`AI API error: ${aiResponse.error.message || "Unknown error"}`);
     }
 
-    const aiData = await aiResponse.json();
-    const content = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const content = aiResponse.data?.choices?.[0]?.message?.content || "";
 
     console.log("AI Response received");
 

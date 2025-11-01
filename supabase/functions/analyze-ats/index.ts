@@ -34,11 +34,6 @@ serve(async (req) => {
       throw new Error("Resume text is required");
     }
 
-    const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY");
-    if (!GOOGLE_AI_API_KEY) {
-      throw new Error("GOOGLE_AI_API_KEY not configured");
-    }
-
     const systemPrompt = `You are an ATS (Applicant Tracking System) analyzer expert. 
 Analyze resumes for ATS compatibility and provide detailed scoring and recommendations.
 
@@ -52,7 +47,7 @@ Evaluate the resume on these criteria:
 
 ${jobDescription ? `Compare against this job description:\n${jobDescription}\n\n` : ""}
 
-Return a JSON object with:
+Return ONLY a valid JSON object with:
 {
   "overallScore": number (0-100),
   "categoryScores": {
@@ -71,34 +66,26 @@ Return a JSON object with:
 
     const userPrompt = `Analyze this resume for ATS compatibility:\n\n${resumeText}`;
 
-    console.log("Calling Google AI Studio for ATS analysis...");
+    console.log("Calling Lovable AI for ATS analysis...");
 
-    const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GOOGLE_AI_API_KEY}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    const aiResponse = await supabase.functions.invoke("ai-chat", {
+      body: {
+        model: "google/gemini-2.5-flash",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 1536,
       },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: `${systemPrompt}\n\n${userPrompt}`
-          }]
-        }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1536,
-        }
-      }),
     });
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error("AI API Error:", aiResponse.status, errorText);
-      throw new Error(`AI API error: ${aiResponse.status}`);
+    if (aiResponse.error) {
+      console.error("AI API Error:", aiResponse.error);
+      throw new Error(`AI API error: ${aiResponse.error.message || "Unknown error"}`);
     }
 
-    const aiData = await aiResponse.json();
-    const analysisContent = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const analysisContent = aiResponse.data?.choices?.[0]?.message?.content || "";
 
     console.log("AI Analysis received");
 

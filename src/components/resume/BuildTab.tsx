@@ -88,12 +88,68 @@ export function BuildTab() {
     }
   };
 
-  const handleDownloadPDF = () => {
-    // TODO: Implement PDF download using react-pdf or similar
-    toast({
-      title: "PDF Download",
-      description: "PDF generation will be implemented soon",
-    });
+  const handleDownloadPDF = async () => {
+    if (!resumeContent || !profile) return;
+    
+    try {
+      // Create a simple text representation for now
+      // In production, you'd use @react-pdf/renderer which is already installed
+      const resumeText = `
+${profile.full_name}
+${profile.email} | ${profile.phone_number}
+${profile.linkedin_profile ? `LinkedIn: ${profile.linkedin_profile}` : ''}
+${profile.github_portfolio ? `GitHub: ${profile.github_portfolio}` : ''}
+
+SUMMARY
+${resumeContent.summary || 'Professional with strong technical skills and experience.'}
+
+EDUCATION
+${resumeContent.formattedEducation?.map((edu: any) => 
+  `${edu.degree || edu.institution}\n${edu.field_of_study || ''}\n${edu.start_date} - ${edu.end_date || 'Present'}`
+).join('\n\n') || ''}
+
+SKILLS
+${resumeContent.formattedSkills ? JSON.stringify(resumeContent.formattedSkills, null, 2) : ''}
+
+PROJECTS
+${resumeContent.formattedProjects?.map((proj: any) => 
+  `${proj.title}\n${proj.description}\n${proj.technologies_used?.join(', ') || ''}`
+).join('\n\n') || ''}
+
+${resumeContent.formattedCertifications?.length ? 
+  `CERTIFICATIONS\n${resumeContent.formattedCertifications.map((cert: any) => 
+    `${cert.certification_name} - ${cert.issuing_organization}`
+  ).join('\n')}` : ''}
+
+${resumeContent.formattedAchievements?.length ?
+  `ACHIEVEMENTS\n${resumeContent.formattedAchievements.map((ach: any) => 
+    `• ${ach.achievement_title}: ${ach.description}`
+  ).join('\n')}` : ''}
+`;
+
+      // Create blob and download
+      const blob = new Blob([resumeText], { type: 'text/plain' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${profile.full_name?.replace(/\s+/g, '_')}_Resume.txt`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast({
+        title: "Resume Downloaded",
+        description: "Your resume has been downloaded as a text file.",
+      });
+    } catch (error) {
+      console.error("Download error:", error);
+      toast({
+        title: "Download Failed",
+        description: "Failed to download resume",
+        variant: "destructive",
+      });
+    }
   };
 
   if (isLoading) {
@@ -130,6 +186,11 @@ export function BuildTab() {
         <AlertDescription>
           Fill in all sections below to create your comprehensive resume profile. You can edit any section at any time.
           Each section supports multiple entries where applicable (education, projects, skills, etc.).
+          {completeness < 100 && (
+            <strong className="block mt-2 text-primary">
+              Complete all sections ({completeness}% done) to unlock the "Generate Resume PDF" button.
+            </strong>
+          )}
         </AlertDescription>
       </Alert>
 
