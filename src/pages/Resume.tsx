@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { resumeAnalytics } from "@/lib/mockData";
 import { toast } from "sonner";
 import { BuildTab } from "@/components/resume/BuildTab";
+import { ATSTab } from "@/components/resume/ATSTab";
 
 export default function Resume() {
   const [activeTab, setActiveTab] = useState("build");
@@ -61,55 +62,7 @@ export default function Resume() {
 
         {/* ATS Score */}
         <TabsContent value="ats" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <Card className="shadow-card border-l-4 border-l-primary">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-4xl font-bold text-primary">{resumeAnalytics.atsScore}</CardTitle>
-                <CardDescription>Overall ATS Score</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Progress value={resumeAnalytics.atsScore} className="[&>div]:bg-primary" />
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-card md:col-span-2">
-              <CardHeader>
-                <CardTitle>Upload Resume for Analysis</CardTitle>
-                <CardDescription>Get instant feedback on your resume's ATS compatibility</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary transition-colors cursor-pointer">
-                  <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">Click to upload or drag and drop</p>
-                  <p className="text-xs text-muted-foreground mt-1">PDF, DOC, DOCX (Max 5MB)</p>
-                </div>
-                <Button className="w-full bg-gradient-primary" onClick={() => handleGenerate('ATS Analysis')}>
-                  Analyze Resume
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card className="shadow-card">
-            <CardHeader>
-              <CardTitle>Improvement Areas</CardTitle>
-              <CardDescription>Focus on these areas to boost your ATS score</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {resumeAnalytics.improvements.map((item, idx) => (
-                <div key={idx} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">{item.category}</span>
-                    <Badge variant={item.score >= 80 ? 'default' : 'secondary'}>
-                      {item.score}/100
-                    </Badge>
-                  </div>
-                  <Progress value={item.score} />
-                  <p className="text-sm text-muted-foreground">{item.suggestions}</p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+          <ATSTab />
         </TabsContent>
 
         {/* AI Enhance */}
