@@ -321,7 +321,10 @@ export function BuildTab() {
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>HOBBIES & INTERESTS</Text>
                 <Text style={styles.text}>
-                  {resumeContent.formattedHobbies.map((hobby: any) => hobby.hobby_name || hobby.name).join(' • ')}
+                  {resumeContent.formattedHobbies
+                    .map((hobby: any) => typeof hobby === 'string' ? hobby : (hobby.hobby_name || hobby.name || hobby.title || ''))
+                    .filter((s: string) => s && s.trim())
+                    .join(' • ')}
                 </Text>
               </View>
             )}

@@ -255,11 +255,14 @@ export function ResumePreviewDialog({
               <div>
                 <h2 className="text-xl font-semibold border-b pb-2 mb-3">Hobbies & Interests</h2>
                 <div className="flex flex-wrap gap-2">
-                  {resumeContent.formattedHobbies.map((hobby: any, idx: number) => (
-                    <span key={idx} className="text-sm px-3 py-1 bg-muted rounded-full">
-                      {hobby.hobby_name || hobby.name}
-                    </span>
-                  ))}
+                  {resumeContent.formattedHobbies.map((hobby: any, idx: number) => {
+                    const label = typeof hobby === 'string' ? hobby : (hobby.hobby_name || hobby.name || hobby.title || '');
+                    return (
+                      <span key={idx} className="text-sm px-3 py-1 bg-muted rounded-full">
+                        {label}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             )}
