@@ -74,7 +74,7 @@ serve(async (req) => {
       }
 
       try {
-        const aiResponse = await fetch('https://api.lovable.app/v1/ai/completions', {
+        const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${lovableApiKey}`,
@@ -84,39 +84,34 @@ serve(async (req) => {
             model: 'google/gemini-2.5-flash',
             messages: [
               {
+                role: 'system',
+                content: 'You are a precise document text extractor. Return ONLY the plain text content from the provided document, preserving reading order as best as possible. No extra commentary.'
+              },
+              {
                 role: 'user',
                 content: [
-                  {
-                    type: 'text',
-                    text: 'Extract all text content from this document. Return ONLY the extracted text, no additional commentary or formatting. Preserve the structure and content exactly as it appears in the document.'
-                  },
-                  {
-                    type: 'image_url',
-                    image_url: {
-                      url: `data:application/${fileExtension};base64,${base64}`
-                    }
-                  }
+                  { type: 'text', text: 'Extract all text from this document and return only the text.' },
+                  { type: 'image_url', image_url: { url: `data:application/${fileExtension};base64,${base64}` } }
                 ]
               }
-            ],
-            max_tokens: 4000,
-            temperature: 0
+            ]
           })
         });
 
         if (!aiResponse.ok) {
           const errorData = await aiResponse.text();
-          console.error('Lovable AI error response:', errorData);
+          console.error('Lovable AI error response:', aiResponse.status, errorData);
           throw new Error(`Lovable AI request failed: ${aiResponse.status}`);
         }
 
         const aiResult = await aiResponse.json();
-        extractedText = aiResult.choices[0].message.content.trim();
+        extractedText = (aiResult.choices?.[0]?.message?.content || '').trim();
         
         console.log(`Extracted ${extractedText.length} characters using AI`);
       } catch (aiError) {
         console.error('AI extraction error:', aiError);
-        throw new Error('Unable to extract text from document. Please copy the text and use the text area instead.');
+        // Do not throw here to avoid 400 on the client; return empty text with success false below
+        extractedText = '';
       }
     } else {
       throw new Error('Unsupported file format. Please use TXT, PDF, DOC, or DOCX files.');
@@ -127,11 +122,14 @@ serve(async (req) => {
     
     console.log(`Successfully extracted ${extractedText.length} characters`);
 
+    const ok = extractedText && extractedText.trim().length > 0;
+
     return new Response(
       JSON.stringify({ 
-        success: true, 
-        text: extractedText,
-        length: extractedText.length 
+        success: ok, 
+        text: ok ? extractedText : undefined,
+        length: ok ? extractedText.length : 0,
+        error: ok ? undefined : 'Text could not be extracted from the document.'
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -144,7 +142,7 @@ serve(async (req) => {
         error: error instanceof Error ? error.message : 'Unknown error occurred' 
       }),
       { 
-        status: 400,
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     );
