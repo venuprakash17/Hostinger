@@ -18,6 +18,7 @@ import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminManageUsers from "./pages/admin/ManageUsers";
 import ManageColleges from "./pages/superadmin/ManageColleges";
 import ManageUsers from "./pages/superadmin/ManageUsers";
+import ManageCompanies from "./pages/superadmin/ManageCompanies";
 import SuperAdminDashboard from "./pages/superadmin/SuperAdminDashboard";
 import ManageNotifications from "./pages/admin/ManageNotifications";
 import ManageSections from "./pages/admin/ManageSections";
@@ -26,6 +27,7 @@ import ManageAttendance from "./pages/faculty/ManageAttendance";
 import ManageCodingProblems from "./pages/faculty/ManageCodingProblems";
 import PlacementTraining from "./pages/student/PlacementTraining";
 import NotFound from "./pages/NotFound";
+import * as XLSX from 'xlsx';
 
 const queryClient = new QueryClient();
 
@@ -73,6 +75,7 @@ const App = () => (
             <Route path="/superadmin/dashboard" element={<SuperAdminDashboard />} />
             <Route path="/superadmin/colleges" element={<ManageColleges />} />
             <Route path="/superadmin/users" element={<ManageUsers />} />
+            <Route path="/superadmin/companies" element={<ManageCompanies />} />
           </Route>
           
           <Route path="*" element={<NotFound />} />
