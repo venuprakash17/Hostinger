@@ -6,8 +6,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { apiClient } from "@/integrations/api/client";
+import { useStudentProfile } from "@/hooks/useStudentProfile";
 
 interface ATSAnalysis {
   overallScore: number;
@@ -105,27 +106,72 @@ export function ATSTab() {
       // Reflect extracted text in the textarea
       setResumeText(resumeText);
 
-      // Call analyze-ats function
-      const { data, error } = await supabase.functions.invoke('analyze-ats', {
-        body: { 
-          resumeText,
-          jobDescription: jobDescription || undefined
-        }
-      });
-
-      if (error) throw error;
-
-      if (data.success && data.analysis) {
-        setAnalysis(data.analysis);
-        toast.success("Resume analyzed successfully!");
-      } else {
-        throw new Error(data.error || "Analysis failed");
-      }
+      // Analyze using backend API
+      await analyzeResumeWithAPI(resumeText, jobDescription);
     } catch (error) {
       console.error("Error analyzing resume:", error);
       toast.error(error instanceof Error ? error.message : "Failed to analyze resume");
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  const { profile, education, projects, skills } = useStudentProfile();
+  const [resumeText, setResumeText] = useState("");
+
+  const analyzeResumeWithAPI = async (text: string, jobDesc?: string) => {
+    try {
+      // Prepare resume data from profile
+      const resumeData = {
+        personal_info: profile ? {
+          full_name: profile.full_name,
+          email: profile.email,
+        } : undefined,
+        education: education?.map(edu => ({
+          degree: edu.degree,
+          institution: edu.institution,
+          field_of_study: edu.field_of_study,
+          start_date: edu.start_date,
+          end_date: edu.end_date,
+        })),
+        experience: [],
+        projects: projects?.map(proj => ({
+          project_title: proj.title,
+          description: proj.description,
+          technologies_used: proj.technologies,
+        })),
+        skills: skills || [],
+        certifications: [],
+        achievements: [],
+      };
+
+      const result = await apiClient.calculateATSScore({
+        resume_data: resumeData,
+        job_description: jobDesc || undefined,
+      });
+
+      // Convert API response to component format
+      const analysis: ATSAnalysis = {
+        overallScore: result.score,
+        categoryScores: {
+          format: result.breakdown.personal_info || 0,
+          keywords: result.breakdown.keyword_matching || 0,
+          experience: result.breakdown.experience || 0,
+          skills: result.breakdown.skills || 0,
+          contact: result.breakdown.personal_info || 0,
+          readability: result.breakdown.education || 0,
+        },
+        strengths: result.strengths || [],
+        improvements: result.recommendations || [],
+        missingKeywords: result.missing_keywords || [],
+        recommendations: result.recommendations || [],
+      };
+
+      setAnalysis(analysis);
+      toast.success("Resume analyzed successfully!");
+    } catch (error) {
+      console.error("Error analyzing resume:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to analyze resume");
     }
   };
 
@@ -138,21 +184,7 @@ export function ATSTab() {
     setIsAnalyzing(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke('analyze-ats', {
-        body: { 
-          resumeText: text,
-          jobDescription: jobDescription || undefined
-        }
-      });
-
-      if (error) throw error;
-
-      if (data.success && data.analysis) {
-        setAnalysis(data.analysis);
-        toast.success("Resume analyzed successfully!");
-      } else {
-        throw new Error(data.error || "Analysis failed");
-      }
+      await analyzeResumeWithAPI(text, jobDescription || undefined);
     } catch (error) {
       console.error("Error analyzing resume:", error);
       toast.error(error instanceof Error ? error.message : "Failed to analyze resume");
@@ -160,8 +192,6 @@ export function ATSTab() {
       setIsAnalyzing(false);
     }
   };
-
-  const [resumeText, setResumeText] = useState("");
 
   return (
     <div className="space-y-4">

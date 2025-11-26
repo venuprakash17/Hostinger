@@ -1,0 +1,60 @@
+# Docker Compose for Production Deployment (VPS)
+# This includes PostgreSQL + Backend API
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: elevate_edu_db
+    environment:
+      POSTGRES_USER: elevate_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_production}
+      POSTGRES_DB: elevate_edu
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elevate_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - elevate_network
+    restart: unless-stopped
+
+  # FastAPI Backend
+  backend:
+    build: .
+    container_name: elevate_edu_api
+    environment:
+      DATABASE_URL: postgresql://elevate_user:${POSTGRES_PASSWORD:-change_me_in_production}@postgres:5432/elevate_edu
+      SECRET_KEY: ${SECRET_KEY:-change_me_in_production}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:8080}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data  # For SQLite backup (if needed)
+    networks:
+      - elevate_network
+    restart: unless-stopped
+    command: >
+      sh -c "
+        sleep 5 &&
+        python -c 'from app.core.database import Base, engine; Base.metadata.create_all(bind=engine)' &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000
+      "
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  elevate_network:
+    driver: bridge
+

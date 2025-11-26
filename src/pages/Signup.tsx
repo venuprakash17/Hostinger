@@ -7,9 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { authHelpers, dbHelpers, COLLECTIONS } from "@/integrations/appwrite/helpers";
 import { signupSchema } from "@/lib/signupValidation";
-import { getSafeAuthError } from "@/lib/authErrors";
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -35,16 +34,24 @@ export default function Signup() {
   }, [department]);
 
   const fetchDepartments = async () => {
-    const { data } = await supabase.from("departments").select("*");
-    if (data) setDepartments(data);
+    try {
+      const data = await dbHelpers.select(COLLECTIONS.DEPARTMENTS);
+      if (data) setDepartments(data);
+    } catch (error) {
+      console.error('Error fetching departments:', error);
+    }
   };
 
   const fetchSections = async () => {
-    const { data } = await supabase
-      .from("sections")
-      .select("*")
-      .eq("department_id", department);
-    if (data) setSections(data);
+    try {
+      const data = await dbHelpers.selectWithFilters(
+        COLLECTIONS.SECTIONS,
+        { eq: { department_id: department } }
+      );
+      if (data) setSections(data);
+    } catch (error) {
+      console.error('Error fetching sections:', error);
+    }
   };
 
   const handleSignup = async (e: React.FormEvent) => {
@@ -62,44 +69,52 @@ export default function Signup() {
         department,
         section
       });
-      const { data, error } = await supabase.auth.signUp({
-        email: validatedData.email,
-        password: validatedData.password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/`,
-          data: {
-            full_name: validatedData.fullName,
-            roll_number: validatedData.rollNumber,
-            department: validatedData.department,
-            section: validatedData.section
-          }
-        }
+
+      // Create user account with Appwrite
+      const user = await authHelpers.signUp(
+        validatedData.email.trim().toLowerCase(),
+        validatedData.password,
+        validatedData.fullName
+      );
+
+      if (!user) {
+        throw new Error("Failed to create user account");
+      }
+
+      // Create profile with additional info
+      await dbHelpers.insert(COLLECTIONS.PROFILES, {
+        user_id: user.$id,
+        email: validatedData.email.trim().toLowerCase(),
+        full_name: validatedData.fullName,
+        department: validatedData.department,
+        section: validatedData.section,
+        roll_number: validatedData.rollNumber
       });
 
-      if (error) throw error;
+      // Assign student role
+      await dbHelpers.insert(COLLECTIONS.USER_ROLES, {
+        user_id: user.$id,
+        role: 'student',
+        college_id: null
+      });
 
-      if (data.user) {
-        // Update profile with additional info
-        await supabase
-          .from("profiles")
-          .update({ 
-            department: validatedData.department,
-            section: validatedData.section,
-            roll_number: validatedData.rollNumber
-          })
-          .eq("id", data.user.id);
-
-        // Student role is automatically assigned by database trigger
-        toast.success("Account created successfully! Please login.");
-        setTimeout(() => navigate("/login"), 1000);
-      }
+      toast.success("Account created successfully! Please login.");
+      setTimeout(() => navigate("/login"), 1000);
     } catch (error: any) {
       // Handle Zod validation errors
       if (error.name === 'ZodError') {
         const firstError = error.errors[0];
         toast.error(firstError.message);
       } else {
-        toast.error(getSafeAuthError(error));
+        // Handle Appwrite errors
+        const errorMessage = error.message || "An error occurred. Please try again.";
+        if (errorMessage.includes('already exists') || errorMessage.includes('duplicate')) {
+          toast.error("An account with this email already exists.");
+        } else if (errorMessage.includes('password')) {
+          toast.error("Password must be at least 8 characters long.");
+        } else {
+          toast.error(errorMessage);
+        }
       }
     } finally {
       setLoading(false);

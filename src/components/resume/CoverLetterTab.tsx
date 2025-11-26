@@ -6,9 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useStudentProfile } from "@/hooks/useStudentProfile";
+import { apiClient } from "@/integrations/api/client";
 
 interface CoverLetterResult {
   coverLetter: string;
@@ -17,7 +17,7 @@ interface CoverLetterResult {
 }
 
 export function CoverLetterTab() {
-  const { profile, isLoading } = useStudentProfile();
+  const { profile, education, projects, skills, isLoading } = useStudentProfile();
   const [companyName, setCompanyName] = useState("");
   const [position, setPosition] = useState("");
   const [whyInterested, setWhyInterested] = useState("");
@@ -40,27 +40,47 @@ export function CoverLetterTab() {
     setIsGenerating(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke("generate-cover-letter", {
-        body: {
-          companyName,
-          position,
-          whyInterested: whyInterested || undefined,
-          jobDescription: jobDescription || undefined,
-        },
+      toast.info("Generating your cover letter...");
+
+      // Prepare resume data for API
+      const resumeData = {
+        personal_info: profile ? {
+          full_name: profile.full_name,
+          email: profile.email,
+        } : undefined,
+        education: education?.map(edu => ({
+          degree: edu.degree,
+          institution: edu.institution,
+          field_of_study: edu.field_of_study,
+        })),
+        experience: [],
+        projects: projects?.map(proj => ({
+          project_title: proj.title,
+          description: proj.description,
+          technologies_used: proj.technologies,
+        })),
+        skills: skills || [],
+        certifications: [],
+        achievements: [],
+      };
+
+      // Generate cover letter using API
+      const apiResult = await apiClient.generateCoverLetter({
+        resume_data: resumeData,
+        job_description: jobDescription || "Software Engineer position",
+        company_name: companyName,
+        role: position,
       });
 
-      if (error) throw error;
+      // Convert API response to component format
+      const result: CoverLetterResult = {
+        coverLetter: apiResult.cover_letter,
+        subject: `Application for ${position} Position at ${companyName}`,
+        highlights: skills?.slice(0, 3) || [],
+      };
 
-      if (data.success) {
-        setResult({
-          coverLetter: data.coverLetter,
-          subject: data.subject,
-          highlights: data.highlights || [],
-        });
-        toast.success("Cover letter generated successfully!");
-      } else {
-        throw new Error(data.error || "Failed to generate cover letter");
-      }
+      setResult(result);
+      toast.success("Cover letter generated successfully!");
     } catch (error) {
       console.error("Error generating cover letter:", error);
       toast.error(error instanceof Error ? error.message : "Failed to generate cover letter");

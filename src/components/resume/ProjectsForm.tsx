@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,9 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Trash2, Edit2, X } from "lucide-react";
 import { Project } from "@/hooks/useStudentProfile";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
+import { resumeStorage } from "@/lib/resumeStorage";
 
 interface ProjectsFormProps {
   projects: Project[];
@@ -19,59 +18,54 @@ export function ProjectsForm({ projects }: ProjectsFormProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
   const { register, handleSubmit, reset, formState: { errors }, setValue, watch } = useForm<Project>();
 
   const onSubmit = async (data: Project) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      // Clear draft after successful save
+      resumeStorage.clear('projects_form');
 
-      // Convert comma-separated technologies to array
-      const technologies = (data.technologies_used as any as string || "")
-        .split(",")
-        .map(t => t.trim())
-        .filter(Boolean);
+      // Convert comma-separated technologies to array if string
+      const technologies = Array.isArray(data.technologies_used) 
+        ? data.technologies_used 
+        : (typeof data.technologies_used === 'string' 
+            ? data.technologies_used.split(",").map(t => t.trim()).filter(Boolean)
+            : []);
 
-      // Convert YYYY-MM to YYYY-MM-01 for date fields
       const projectData = {
         ...data,
+        id: editingId || `draft_${Date.now()}`,
         technologies_used: technologies,
         duration_start: data.duration_start ? `${data.duration_start}-01` : null,
         duration_end: data.duration_end ? `${data.duration_end}-01` : null,
       };
 
+      // Save to localStorage
+      const savedProjects = resumeStorage.load<Project[]>('projects_saved') || [];
       if (editingId) {
-        const { error } = await supabase
-          .from("student_projects")
-          .update(projectData)
-          .eq("id", editingId)
-          .eq("user_id", user.id);
-
-        if (error) throw error;
+        const index = savedProjects.findIndex((p: any) => p.id === editingId);
+        if (index >= 0) {
+          savedProjects[index] = projectData;
+        } else {
+          savedProjects.push(projectData);
+        }
         toast({ title: "Project updated successfully" });
         setEditingId(null);
       } else {
-        const { error } = await supabase
-          .from("student_projects")
-          .insert({
-            user_id: user.id,
-            ...projectData,
-            display_order: projects.length,
-          });
-
-        if (error) throw error;
+        savedProjects.push(projectData);
         toast({ title: "Project added successfully" });
       }
+      
+      resumeStorage.save('projects_saved', savedProjects);
 
       reset();
       setIsAdding(false);
-      queryClient.invalidateQueries({ queryKey: ["studentProjects"] });
+      window.dispatchEvent(new Event('resumeDataUpdated'));
     } catch (error: any) {
       toast({
         title: "Error saving project",
-        description: error.message,
+        description: error.message || "Please try again",
         variant: "destructive",
       });
     }
@@ -90,18 +84,16 @@ export function ProjectsForm({ projects }: ProjectsFormProps) {
 
   const handleDelete = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from("student_projects")
-        .delete()
-        .eq("id", id);
-
-      if (error) throw error;
+      const savedProjects = resumeStorage.load<Project[]>('projects_saved') || [];
+      const filtered = savedProjects.filter((p: any) => p.id !== id);
+      resumeStorage.save('projects_saved', filtered);
+      
       toast({ title: "Project deleted successfully" });
-      queryClient.invalidateQueries({ queryKey: ["studentProjects"] });
+      window.dispatchEvent(new Event('resumeDataUpdated'));
     } catch (error: any) {
       toast({
         title: "Error deleting project",
-        description: error.message,
+        description: error.message || "Please try again",
         variant: "destructive",
       });
     }
@@ -110,6 +102,7 @@ export function ProjectsForm({ projects }: ProjectsFormProps) {
   const handleCancel = () => {
     setIsAdding(false);
     setEditingId(null);
+    resumeStorage.clear('projects_form');
     reset();
   };
 
@@ -205,7 +198,7 @@ export function ProjectsForm({ projects }: ProjectsFormProps) {
                 <Input
                   id="project_title"
                   {...register("project_title", { required: "Project title is required" })}
-                  placeholder="AI Resume Builder"
+                  placeholder="e.g., AI-Powered Resume Builder, E-Commerce Platform, Task Management App"
                 />
                 {errors.project_title && (
                   <p className="text-sm text-destructive">{errors.project_title.message}</p>
@@ -231,44 +224,48 @@ export function ProjectsForm({ projects }: ProjectsFormProps) {
               </div>
 
               <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="description">Description</Label>
+                <Label htmlFor="description">Project Description</Label>
                 <Textarea
                   id="description"
                   {...register("description")}
-                  placeholder="Brief description of the project (2-3 lines)"
+                  placeholder="e.g., Developed a full-stack web application that helps users build ATS-friendly resumes using AI. Implemented real-time collaboration and PDF export features."
                   rows={3}
                 />
+                <p className="text-xs text-muted-foreground">Brief overview of what the project does (2-3 sentences)</p>
               </div>
 
               <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="technologies_used">Technologies Used</Label>
+                <Label htmlFor="technologies_used">Technologies & Tools Used</Label>
                 <Input
                   id="technologies_used"
                   {...register("technologies_used")}
-                  placeholder="Python, React, AWS (comma-separated)"
+                  placeholder="e.g., React, Node.js, PostgreSQL, AWS S3, Docker, Jest"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Separate technologies with commas
+                  Separate with commas: programming languages, frameworks, databases, tools
                 </p>
               </div>
 
               <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="role_contribution">Role / Contribution</Label>
+                <Label htmlFor="role_contribution">Your Role & Key Contributions</Label>
                 <Textarea
                   id="role_contribution"
                   {...register("role_contribution")}
-                  placeholder="What you did in this project"
+                  placeholder="e.g., Led frontend development, designed REST APIs, implemented authentication system, optimized database queries resulting in 40% faster load times"
                   rows={2}
                 />
+                <p className="text-xs text-muted-foreground">What you specifically contributed and accomplished</p>
               </div>
 
               <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="github_demo_link">GitHub / Demo Link</Label>
+                <Label htmlFor="github_demo_link">GitHub Repository / Live Demo URL</Label>
                 <Input
                   id="github_demo_link"
+                  type="url"
                   {...register("github_demo_link")}
-                  placeholder="https://github.com/username/project"
+                  placeholder="e.g., https://github.com/username/project-name or https://project-demo.vercel.app"
                 />
+                <p className="text-xs text-muted-foreground">Optional: Link to code repository or live demo</p>
               </div>
             </div>
 

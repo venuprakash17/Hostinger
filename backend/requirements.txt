@@ -1,0 +1,27 @@
+# FastAPI Backend Dependencies
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+sqlalchemy==2.0.35
+alembic==1.13.2
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.12
+pydantic==2.9.2
+pydantic-settings==2.6.1
+python-dotenv==1.0.1
+email-validator==2.2.0
+openpyxl==3.1.5  # For Excel file support (.xlsx)
+reportlab==4.2.2  # For PDF generation (hall tickets)
+docker==7.1.0  # For code execution sandbox
+python-socketio==5.11.0  # For WebSocket support
+
+# Database drivers
+# SQLite is built into Python (no package needed)
+# PostgreSQL (only needed for production/Docker)
+psycopg2-binary==2.9.10; sys_platform != "darwin"  # For Linux/Windows
+psycopg2-binary==2.9.10  # For production
+
+# Optional: For AI features
+# openai==1.51.0
+# langchain==0.3.0
+

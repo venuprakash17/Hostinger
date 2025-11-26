@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,9 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Trash2, Edit2, X } from "lucide-react";
 import { Extracurricular } from "@/hooks/useStudentProfile";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
+import { resumeStorage } from "@/lib/resumeStorage";
 
 interface ExtracurricularFormProps {
   extracurricular: Extracurricular[];
@@ -19,52 +18,83 @@ export function ExtracurricularForm({ extracurricular }: ExtracurricularFormProp
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<Extracurricular>();
+  const { register, handleSubmit, reset, formState: { errors }, watch } = useForm<Extracurricular>();
+  const formValues = watch();
+
+  // Load draft from localStorage when form opens
+  useEffect(() => {
+    if (isAdding && !editingId) {
+      const draft = resumeStorage.load<Extracurricular>('extracurricular_form');
+      if (draft) {
+        reset({
+          ...draft,
+          duration_start: draft.duration_start ? draft.duration_start.substring(0, 7) : undefined,
+          duration_end: draft.duration_end ? draft.duration_end.substring(0, 7) : undefined,
+        });
+        toast({
+          title: "Draft restored",
+          description: "Your previous form data has been restored.",
+        });
+      }
+    }
+  }, [isAdding, editingId, reset, toast]);
+
+  // Auto-save draft to localStorage as user types (debounced)
+  useEffect(() => {
+    if (!isAdding || editingId) return;
+    
+    const timer = setTimeout(() => {
+      const hasData = Object.values(formValues).some(val => 
+        val !== '' && val !== null && val !== undefined
+      );
+      if (hasData) {
+        resumeStorage.save('extracurricular_form', formValues);
+      }
+    }, 1000); // Save after 1 second of no typing
+
+    return () => clearTimeout(timer);
+  }, [formValues, isAdding, editingId]);
 
   const onSubmit = async (data: Extracurricular) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      // Clear draft after successful save
+      resumeStorage.clear('extracurricular_form');
 
-      // Convert YYYY-MM to YYYY-MM-01 for date fields
-      const activityData = {
+      const activityData: Extracurricular = {
         ...data,
+        id: editingId || `extra_${Date.now()}`,
         duration_start: data.duration_start ? `${data.duration_start}-01` : null,
         duration_end: data.duration_end ? `${data.duration_end}-01` : null,
       };
 
+      // Save to localStorage
+      const savedActivities = resumeStorage.load<Extracurricular[]>('extracurricular_saved') || [];
       if (editingId) {
-        const { error } = await supabase
-          .from("student_extracurricular")
-          .update(activityData)
-          .eq("id", editingId)
-          .eq("user_id", user.id);
-
-        if (error) throw error;
+        const index = savedActivities.findIndex((a: any) => a.id === editingId);
+        if (index >= 0) {
+          savedActivities[index] = activityData;
+        } else {
+          savedActivities.push(activityData);
+        }
         toast({ title: "Activity updated successfully" });
         setEditingId(null);
       } else {
-        const { error } = await supabase
-          .from("student_extracurricular")
-          .insert({
-            user_id: user.id,
-            ...activityData,
-            display_order: extracurricular.length,
-          });
-
-        if (error) throw error;
+        savedActivities.push(activityData);
         toast({ title: "Activity added successfully" });
       }
+      
+      resumeStorage.save('extracurricular_saved', savedActivities);
 
       reset();
       setIsAdding(false);
-      queryClient.invalidateQueries({ queryKey: ["studentExtracurricular"] });
+      
+      // Trigger page refresh to show updated list
+      window.dispatchEvent(new Event('resumeDataUpdated'));
     } catch (error: any) {
       toast({
         title: "Error saving activity",
-        description: error.message,
+        description: error.message || "Please try again",
         variant: "destructive",
       });
     }
@@ -82,18 +112,16 @@ export function ExtracurricularForm({ extracurricular }: ExtracurricularFormProp
 
   const handleDelete = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from("student_extracurricular")
-        .delete()
-        .eq("id", id);
-
-      if (error) throw error;
+      const savedActivities = resumeStorage.load<Extracurricular[]>('extracurricular_saved') || [];
+      const filtered = savedActivities.filter((a: any) => a.id !== id);
+      resumeStorage.save('extracurricular_saved', filtered);
+      
       toast({ title: "Activity deleted successfully" });
-      queryClient.invalidateQueries({ queryKey: ["studentExtracurricular"] });
+      window.dispatchEvent(new Event('resumeDataUpdated'));
     } catch (error: any) {
       toast({
         title: "Error deleting activity",
-        description: error.message,
+        description: error.message || "Please try again",
         variant: "destructive",
       });
     }
@@ -102,8 +130,16 @@ export function ExtracurricularForm({ extracurricular }: ExtracurricularFormProp
   const handleCancel = () => {
     setIsAdding(false);
     setEditingId(null);
+    // Clear draft when canceling
+    resumeStorage.clear('extracurricular_form');
     reset();
   };
+
+  // Merge saved activities from localStorage with props
+  const savedActivities = resumeStorage.load<Extracurricular[]>('extracurricular_saved') || [];
+  const allActivities = [...extracurricular, ...savedActivities.filter((a: any) => 
+    !extracurricular.find((act: any) => act.id === a.id)
+  )];
 
   return (
     <Card>
@@ -120,7 +156,7 @@ export function ExtracurricularForm({ extracurricular }: ExtracurricularFormProp
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Existing activities */}
-        {extracurricular.map((activity) => (
+        {allActivities.map((activity) => (
           <div key={activity.id} className="p-4 border rounded-lg space-y-2">
             <div className="flex justify-between items-start">
               <div className="flex-1">
@@ -130,7 +166,7 @@ export function ExtracurricularForm({ extracurricular }: ExtracurricularFormProp
                 )}
                 {activity.duration_start && (
                   <p className="text-sm text-muted-foreground">
-                    {activity.duration_start} - {activity.duration_end || "Present"}
+                    {activity.duration_start.substring(0, 7)} - {activity.duration_end ? activity.duration_end.substring(0, 7) : "Present"}
                   </p>
                 )}
                 {activity.description && (
@@ -175,7 +211,7 @@ export function ExtracurricularForm({ extracurricular }: ExtracurricularFormProp
                 <Input
                   id="activity_organization"
                   {...register("activity_organization", { required: "Activity/Organization is required" })}
-                  placeholder="Coding Club President"
+                  placeholder="e.g., Coding Club, Student Council, Debate Team, Sports Team, Volunteer Organization"
                 />
                 {errors.activity_organization && (
                   <p className="text-sm text-destructive">{errors.activity_organization.message}</p>
@@ -187,8 +223,9 @@ export function ExtracurricularForm({ extracurricular }: ExtracurricularFormProp
                 <Input
                   id="role"
                   {...register("role")}
-                  placeholder="President, Member, Volunteer, etc."
+                  placeholder="e.g., President, Vice President, Secretary, Team Lead, Member, Volunteer, Organizer"
                 />
+                <p className="text-xs text-muted-foreground">Optional: Your position or role in this activity</p>
               </div>
 
               <div className="space-y-2">
@@ -207,6 +244,7 @@ export function ExtracurricularForm({ extracurricular }: ExtracurricularFormProp
                   type="month"
                   {...register("duration_end")}
                 />
+                <p className="text-xs text-muted-foreground">Leave empty if currently active</p>
               </div>
 
               <div className="space-y-2 md:col-span-2">
@@ -214,9 +252,10 @@ export function ExtracurricularForm({ extracurricular }: ExtracurricularFormProp
                 <Textarea
                   id="description"
                   {...register("description")}
-                  placeholder="What you did or achieved"
+                  placeholder="e.g., Organized monthly coding workshops, led a team of 15 members, managed events with 200+ participants, raised $5,000 for charity"
                   rows={3}
                 />
+                <p className="text-xs text-muted-foreground">Optional: Describe your involvement and achievements</p>
               </div>
             </div>
 

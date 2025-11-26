@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,9 +8,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Trash2, Edit2, X } from "lucide-react";
 import { Education } from "@/hooks/useStudentProfile";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
+import { resumeStorage } from "@/lib/resumeStorage";
 
 interface EducationFormProps {
   education: Education[];
@@ -20,45 +19,85 @@ export function EducationForm({ education }: EducationFormProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
-  const { register, handleSubmit, reset, formState: { errors }, watch, setValue } = useForm<Education>();
+  const form = useForm<Education>({
+    defaultValues: {
+      institution_name: '',
+      degree: '',
+      field_of_study: '',
+      start_date: '',
+      end_date: '',
+      cgpa_percentage: '',
+      relevant_coursework: '',
+      is_current: false,
+    }
+  });
+
+  const { register, handleSubmit, reset, formState: { errors }, watch, setValue } = form;
   const isCurrentEducation = watch("is_current");
+  const formValues = watch();
+
+  // Load draft from localStorage when form opens
+  useEffect(() => {
+    if (isAdding && !editingId) {
+      const draft = resumeStorage.load<Education>('education_form');
+      if (draft) {
+        reset(draft);
+        toast({
+          title: "Draft restored",
+          description: "Your previous form data has been restored.",
+        });
+      }
+    }
+  }, [isAdding, editingId, reset, toast]);
+
+  // Auto-save draft to localStorage as user types (debounced)
+  useEffect(() => {
+    if (!isAdding || editingId) return;
+    
+    const timer = setTimeout(() => {
+      const hasData = Object.values(formValues).some(val => 
+        val !== '' && val !== null && val !== undefined && val !== false
+      );
+      if (hasData) {
+        resumeStorage.save('education_form', formValues);
+      }
+    }, 1000); // Save after 1 second of no typing
+
+    return () => clearTimeout(timer);
+  }, [formValues, isAdding, editingId]);
 
   const onSubmit = async (data: Education) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      // Clear draft after successful save
+      resumeStorage.clear('education_form');
 
-      // Convert YYYY-MM to YYYY-MM-01 for date fields
-      const formattedData = {
+      // TODO: Save to API endpoint when ready
+      // For now, just save to localStorage as "saved" data
+      const savedData = {
         ...data,
+        id: editingId || `draft_${Date.now()}`,
         start_date: data.start_date ? `${data.start_date}-01` : null,
         end_date: data.end_date && !data.is_current ? `${data.end_date}-01` : null,
       };
 
+      // Save to localStorage as saved entry
+      const savedEducation = resumeStorage.load<Education[]>('education_saved') || [];
       if (editingId) {
-        const { error } = await supabase
-          .from("student_education")
-          .update(formattedData)
-          .eq("id", editingId)
-          .eq("user_id", user.id);
-
-        if (error) throw error;
+        const index = savedEducation.findIndex((e: any) => e.id === editingId);
+        if (index >= 0) {
+          savedEducation[index] = savedData;
+        } else {
+          savedEducation.push(savedData);
+        }
         toast({ title: "Education updated successfully" });
         setEditingId(null);
       } else {
-        const { error } = await supabase
-          .from("student_education")
-          .insert({
-            user_id: user.id,
-            ...formattedData,
-            display_order: education.length,
-          });
-
-        if (error) throw error;
+        savedEducation.push(savedData);
         toast({ title: "Education added successfully" });
       }
+      
+      resumeStorage.save('education_saved', savedEducation);
 
       reset({
         institution_name: '',
@@ -71,11 +110,13 @@ export function EducationForm({ education }: EducationFormProps) {
         is_current: false,
       });
       setIsAdding(false);
-      queryClient.invalidateQueries({ queryKey: ["studentEducation"] });
+      
+      // Trigger page refresh to show updated list
+      window.dispatchEvent(new Event('resumeDataUpdated'));
     } catch (error: any) {
       toast({
         title: "Error saving education",
-        description: error.message,
+        description: error.message || "Please try again",
         variant: "destructive",
       });
     }
@@ -95,18 +136,16 @@ export function EducationForm({ education }: EducationFormProps) {
 
   const handleDelete = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from("student_education")
-        .delete()
-        .eq("id", id);
-
-      if (error) throw error;
+      const savedEducation = resumeStorage.load<Education[]>('education_saved') || [];
+      const filtered = savedEducation.filter((e: any) => e.id !== id);
+      resumeStorage.save('education_saved', filtered);
+      
       toast({ title: "Education deleted successfully" });
-      queryClient.invalidateQueries({ queryKey: ["studentEducation"] });
+      window.dispatchEvent(new Event('resumeDataUpdated'));
     } catch (error: any) {
       toast({
         title: "Error deleting education",
-        description: error.message,
+        description: error.message || "Please try again",
         variant: "destructive",
       });
     }
@@ -115,6 +154,8 @@ export function EducationForm({ education }: EducationFormProps) {
   const handleCancel = () => {
     setIsAdding(false);
     setEditingId(null);
+    // Clear draft when canceling
+    resumeStorage.clear('education_form');
     reset({
       institution_name: '',
       degree: '',
@@ -193,7 +234,7 @@ export function EducationForm({ education }: EducationFormProps) {
                 <Input
                   id="institution_name"
                   {...register("institution_name", { required: "Institution name is required" })}
-                  placeholder="University Name"
+                  placeholder="e.g., Massachusetts Institute of Technology"
                 />
                 {errors.institution_name && (
                   <p className="text-sm text-destructive">{errors.institution_name.message}</p>
@@ -205,7 +246,7 @@ export function EducationForm({ education }: EducationFormProps) {
                 <Input
                   id="degree"
                   {...register("degree", { required: "Degree is required" })}
-                  placeholder="B.Tech, B.Sc, M.A, etc."
+                  placeholder="e.g., Bachelor of Science, Master of Arts, Ph.D."
                 />
                 {errors.degree && (
                   <p className="text-sm text-destructive">{errors.degree.message}</p>
@@ -213,11 +254,11 @@ export function EducationForm({ education }: EducationFormProps) {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="field_of_study">Field of Study</Label>
+                <Label htmlFor="field_of_study">Field of Study / Major</Label>
                 <Input
                   id="field_of_study"
                   {...register("field_of_study")}
-                  placeholder="Computer Science, Economics, etc."
+                  placeholder="e.g., Computer Science, Electrical Engineering, Business Administration"
                 />
               </div>
 
@@ -245,8 +286,9 @@ export function EducationForm({ education }: EducationFormProps) {
                 <Input
                   id="cgpa_percentage"
                   {...register("cgpa_percentage")}
-                  placeholder="3.8 GPA or 85%"
+                  placeholder="e.g., 3.8/4.0 or 85% or First Class with Distinction"
                 />
+                <p className="text-xs text-muted-foreground">Optional: Include scale if different from standard</p>
               </div>
             </div>
 
@@ -255,9 +297,10 @@ export function EducationForm({ education }: EducationFormProps) {
               <Textarea
                 id="relevant_coursework"
                 {...register("relevant_coursework")}
-                placeholder="Data Structures, Algorithms, Database Systems"
-                rows={2}
+                placeholder="e.g., Data Structures & Algorithms, Database Management Systems, Machine Learning, Software Engineering"
+                rows={3}
               />
+              <p className="text-xs text-muted-foreground">Optional: List key courses relevant to your career goals</p>
             </div>
 
             <div className="flex items-center space-x-2">

@@ -1,0 +1,113 @@
+name: Deploy Backend to AWS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key.pem
+          chmod 600 ~/.ssh/ec2_key.pem
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          ssh -i ~/.ssh/ec2_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            set -e
+            echo "🚀 Starting deployment..."
+            
+            # Navigate to project directory
+            cd ~/elevate-edu-ui || git clone https://github.com/${{ github.repository }}.git ~/elevate-edu-ui
+            cd ~/elevate-edu-ui
+            
+            # Pull latest changes
+            git fetch origin
+            git reset --hard origin/main
+            
+            # Navigate to backend
+            cd backend
+            
+            # Activate virtual environment
+            source venv/bin/activate || python3.11 -m venv venv && source venv/bin/activate
+            
+            # Install/update dependencies
+            pip install --upgrade pip
+            pip install -r requirements.txt
+            
+            # Create .env file if it doesn't exist
+            if [ ! -f .env ]; then
+              cat > .env << EOL
+            DATABASE_URL=postgresql://elevate_admin:${{ secrets.RDS_PASSWORD }}@${{ secrets.RDS_ENDPOINT }}:5432/elevate_edu
+            SECRET_KEY=${{ secrets.SECRET_KEY }}
+            BACKEND_CORS_ORIGINS=https://${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}.cloudfront.net
+            DEBUG=False
+            API_V1_STR=/api/v1
+            EOL
+            fi
+            
+            # Update .env with latest values
+            sed -i "s|DATABASE_URL=.*|DATABASE_URL=postgresql://elevate_admin:${{ secrets.RDS_PASSWORD }}@${{ secrets.RDS_ENDPOINT }}:5432/elevate_edu|g" .env
+            sed -i "s|SECRET_KEY=.*|SECRET_KEY=${{ secrets.SECRET_KEY }}|g" .env
+            sed -i "s|BACKEND_CORS_ORIGINS=.*|BACKEND_CORS_ORIGINS=https://${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}.cloudfront.net|g" .env
+            
+            # Initialize database (if needed)
+            python -c "from app.core.database import Base, engine; Base.metadata.create_all(bind=engine)" || true
+            
+            # Restart backend service
+            sudo systemctl restart elevate-edu-backend || echo "Service not found, creating..."
+            
+            # Wait for service to start
+            sleep 5
+            
+            # Check service status
+            sudo systemctl status elevate-edu-backend --no-pager || true
+            
+            echo "✅ Deployment complete!"
+          EOF
+
+      - name: Health Check
+        run: |
+          sleep 10
+          response=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.EC2_HOST }}:8000/health || echo "000")
+          if [ "$response" != "200" ]; then
+            echo "❌ Health check failed: HTTP $response"
+            exit 1
+          fi
+          echo "✅ Health check passed"
+
+      - name: Notify Deployment
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Backend deployed successfully!"
+          else
+            echo "❌ Backend deployment failed!"
+          fi
+

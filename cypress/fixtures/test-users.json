@@ -1,0 +1,55 @@
+{
+  "super_admin": {
+    "email": "superadmin@elevate.edu",
+    "password": "SuperAdmin@123",
+    "expectedRoute": "/superadmin/dashboard",
+    "name": "Super Admin"
+  },
+  "admin": {
+    "email": "admin@elevate.edu",
+    "password": "Admin@123",
+    "expectedRoute": "/admin/dashboard",
+    "name": "College Admin"
+  },
+  "faculty": [
+    {
+      "email": "faculty1@elevate.edu",
+      "password": "Faculty@123",
+      "expectedRoute": "/faculty/dashboard",
+      "name": "Dr. John Smith"
+    },
+    {
+      "email": "faculty2@elevate.edu",
+      "password": "Faculty@123",
+      "expectedRoute": "/faculty/dashboard",
+      "name": "Prof. Sarah Johnson"
+    }
+  ],
+  "students": [
+    {
+      "email": "student1@elevate.edu",
+      "password": "Student@123",
+      "expectedRoute": "/dashboard",
+      "name": "Alice Williams"
+    },
+    {
+      "email": "student2@elevate.edu",
+      "password": "Student@123",
+      "expectedRoute": "/dashboard",
+      "name": "Bob Anderson"
+    },
+    {
+      "email": "student3@elevate.edu",
+      "password": "Student@123",
+      "expectedRoute": "/dashboard",
+      "name": "Charlie Brown"
+    },
+    {
+      "email": "student4@elevate.edu",
+      "password": "Student@123",
+      "expectedRoute": "/dashboard",
+      "name": "Diana Prince"
+    }
+  ]
+}
+

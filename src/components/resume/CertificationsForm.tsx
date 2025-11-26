@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,9 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Plus, Trash2, Edit2, X } from "lucide-react";
 import { Certification } from "@/hooks/useStudentProfile";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
+import { resumeStorage } from "@/lib/resumeStorage";
 
 interface CertificationsFormProps {
   certifications: Certification[];
@@ -18,51 +17,81 @@ export function CertificationsForm({ certifications }: CertificationsFormProps) 
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<Certification>();
+  const { register, handleSubmit, reset, formState: { errors }, watch } = useForm<Certification>();
+  const formValues = watch();
+
+  // Load draft from localStorage when form opens
+  useEffect(() => {
+    if (isAdding && !editingId) {
+      const draft = resumeStorage.load<Certification>('certifications_form');
+      if (draft) {
+        reset({
+          ...draft,
+          date_issued: draft.date_issued ? draft.date_issued.substring(0, 7) : undefined,
+        });
+        toast({
+          title: "Draft restored",
+          description: "Your previous form data has been restored.",
+        });
+      }
+    }
+  }, [isAdding, editingId, reset, toast]);
+
+  // Auto-save draft to localStorage as user types (debounced)
+  useEffect(() => {
+    if (!isAdding || editingId) return;
+    
+    const timer = setTimeout(() => {
+      const hasData = Object.values(formValues).some(val => 
+        val !== '' && val !== null && val !== undefined
+      );
+      if (hasData) {
+        resumeStorage.save('certifications_form', formValues);
+      }
+    }, 1000); // Save after 1 second of no typing
+
+    return () => clearTimeout(timer);
+  }, [formValues, isAdding, editingId]);
 
   const onSubmit = async (data: Certification) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      // Clear draft after successful save
+      resumeStorage.clear('certifications_form');
 
-      // Convert YYYY-MM to YYYY-MM-01 for date field
-      const certData = {
+      const certData: Certification = {
         ...data,
+        id: editingId || `cert_${Date.now()}`,
         date_issued: data.date_issued ? `${data.date_issued}-01` : null,
       };
 
+      // Save to localStorage
+      const savedCerts = resumeStorage.load<Certification[]>('certifications_saved') || [];
       if (editingId) {
-        const { error } = await supabase
-          .from("student_certifications")
-          .update(certData)
-          .eq("id", editingId)
-          .eq("user_id", user.id);
-
-        if (error) throw error;
+        const index = savedCerts.findIndex((c: any) => c.id === editingId);
+        if (index >= 0) {
+          savedCerts[index] = certData;
+        } else {
+          savedCerts.push(certData);
+        }
         toast({ title: "Certification updated successfully" });
         setEditingId(null);
       } else {
-        const { error } = await supabase
-          .from("student_certifications")
-          .insert({
-            user_id: user.id,
-            ...certData,
-            display_order: certifications.length,
-          });
-
-        if (error) throw error;
+        savedCerts.push(certData);
         toast({ title: "Certification added successfully" });
       }
+      
+      resumeStorage.save('certifications_saved', savedCerts);
 
       reset();
       setIsAdding(false);
-      queryClient.invalidateQueries({ queryKey: ["studentCertifications"] });
+      
+      // Trigger page refresh to show updated list
+      window.dispatchEvent(new Event('resumeDataUpdated'));
     } catch (error: any) {
       toast({
         title: "Error saving certification",
-        description: error.message,
+        description: error.message || "Please try again",
         variant: "destructive",
       });
     }
@@ -79,18 +108,16 @@ export function CertificationsForm({ certifications }: CertificationsFormProps) 
 
   const handleDelete = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from("student_certifications")
-        .delete()
-        .eq("id", id);
-
-      if (error) throw error;
+      const savedCerts = resumeStorage.load<Certification[]>('certifications_saved') || [];
+      const filtered = savedCerts.filter((c: any) => c.id !== id);
+      resumeStorage.save('certifications_saved', filtered);
+      
       toast({ title: "Certification deleted successfully" });
-      queryClient.invalidateQueries({ queryKey: ["studentCertifications"] });
+      window.dispatchEvent(new Event('resumeDataUpdated'));
     } catch (error: any) {
       toast({
         title: "Error deleting certification",
-        description: error.message,
+        description: error.message || "Please try again",
         variant: "destructive",
       });
     }
@@ -99,8 +126,16 @@ export function CertificationsForm({ certifications }: CertificationsFormProps) 
   const handleCancel = () => {
     setIsAdding(false);
     setEditingId(null);
+    // Clear draft when canceling
+    resumeStorage.clear('certifications_form');
     reset();
   };
+
+  // Merge saved certifications from localStorage with props
+  const savedCerts = resumeStorage.load<Certification[]>('certifications_saved') || [];
+  const allCerts = [...certifications, ...savedCerts.filter((c: any) => 
+    !certifications.find((cert: any) => cert.id === c.id)
+  )];
 
   return (
     <Card>
@@ -117,14 +152,14 @@ export function CertificationsForm({ certifications }: CertificationsFormProps) 
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Existing certifications */}
-        {certifications.map((cert) => (
+        {allCerts.map((cert) => (
           <div key={cert.id} className="p-4 border rounded-lg space-y-2">
             <div className="flex justify-between items-start">
               <div className="flex-1">
                 <h4 className="font-semibold">{cert.certification_name}</h4>
                 <p className="text-sm text-muted-foreground">{cert.issuing_organization}</p>
                 {cert.date_issued && (
-                  <p className="text-sm text-muted-foreground">Issued: {cert.date_issued}</p>
+                  <p className="text-sm text-muted-foreground">Issued: {cert.date_issued.substring(0, 7)}</p>
                 )}
                 {cert.credential_url && (
                   <a
@@ -175,7 +210,7 @@ export function CertificationsForm({ certifications }: CertificationsFormProps) 
                 <Input
                   id="certification_name"
                   {...register("certification_name", { required: "Certification name is required" })}
-                  placeholder="AWS Certified Cloud Practitioner"
+                  placeholder="e.g., AWS Certified Solutions Architect, Google Cloud Professional, PMP Certification"
                 />
                 {errors.certification_name && (
                   <p className="text-sm text-destructive">{errors.certification_name.message}</p>
@@ -187,7 +222,7 @@ export function CertificationsForm({ certifications }: CertificationsFormProps) 
                 <Input
                   id="issuing_organization"
                   {...register("issuing_organization", { required: "Issuing organization is required" })}
-                  placeholder="Amazon"
+                  placeholder="e.g., Amazon Web Services, Google Cloud, Microsoft, PMI"
                 />
                 {errors.issuing_organization && (
                   <p className="text-sm text-destructive">{errors.issuing_organization.message}</p>
@@ -201,15 +236,18 @@ export function CertificationsForm({ certifications }: CertificationsFormProps) 
                   type="month"
                   {...register("date_issued")}
                 />
+                <p className="text-xs text-muted-foreground">Optional: When you received this certification</p>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="credential_url">Credential URL</Label>
                 <Input
                   id="credential_url"
+                  type="url"
                   {...register("credential_url")}
-                  placeholder="https://..."
+                  placeholder="e.g., https://www.credly.com/badges/abc123 or https://aws.amazon.com/verification"
                 />
+                <p className="text-xs text-muted-foreground">Optional: Link to verify your certification online</p>
               </div>
             </div>
 
@@ -227,4 +265,3 @@ export function CertificationsForm({ certifications }: CertificationsFormProps) 
     </Card>
   );
 }
-

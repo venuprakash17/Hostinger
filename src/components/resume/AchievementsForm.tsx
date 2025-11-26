@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,9 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Trash2, Edit2, X } from "lucide-react";
 import { Achievement } from "@/hooks/useStudentProfile";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
+import { resumeStorage } from "@/lib/resumeStorage";
 
 interface AchievementsFormProps {
   achievements: Achievement[];
@@ -19,51 +18,81 @@ export function AchievementsForm({ achievements }: AchievementsFormProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<Achievement>();
+  const { register, handleSubmit, reset, formState: { errors }, watch } = useForm<Achievement>();
+  const formValues = watch();
+
+  // Load draft from localStorage when form opens
+  useEffect(() => {
+    if (isAdding && !editingId) {
+      const draft = resumeStorage.load<Achievement>('achievements_form');
+      if (draft) {
+        reset({
+          ...draft,
+          achievement_date: draft.achievement_date ? draft.achievement_date.substring(0, 7) : undefined,
+        });
+        toast({
+          title: "Draft restored",
+          description: "Your previous form data has been restored.",
+        });
+      }
+    }
+  }, [isAdding, editingId, reset, toast]);
+
+  // Auto-save draft to localStorage as user types (debounced)
+  useEffect(() => {
+    if (!isAdding || editingId) return;
+    
+    const timer = setTimeout(() => {
+      const hasData = Object.values(formValues).some(val => 
+        val !== '' && val !== null && val !== undefined
+      );
+      if (hasData) {
+        resumeStorage.save('achievements_form', formValues);
+      }
+    }, 1000); // Save after 1 second of no typing
+
+    return () => clearTimeout(timer);
+  }, [formValues, isAdding, editingId]);
 
   const onSubmit = async (data: Achievement) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      // Clear draft after successful save
+      resumeStorage.clear('achievements_form');
 
-      // Convert YYYY-MM to YYYY-MM-01 for date field
-      const achievementData = {
+      const achievementData: Achievement = {
         ...data,
+        id: editingId || `achievement_${Date.now()}`,
         achievement_date: data.achievement_date ? `${data.achievement_date}-01` : null,
       };
 
+      // Save to localStorage
+      const savedAchievements = resumeStorage.load<Achievement[]>('achievements_saved') || [];
       if (editingId) {
-        const { error } = await supabase
-          .from("student_achievements")
-          .update(achievementData)
-          .eq("id", editingId)
-          .eq("user_id", user.id);
-
-        if (error) throw error;
+        const index = savedAchievements.findIndex((a: any) => a.id === editingId);
+        if (index >= 0) {
+          savedAchievements[index] = achievementData;
+        } else {
+          savedAchievements.push(achievementData);
+        }
         toast({ title: "Achievement updated successfully" });
         setEditingId(null);
       } else {
-        const { error } = await supabase
-          .from("student_achievements")
-          .insert({
-            user_id: user.id,
-            ...achievementData,
-            display_order: achievements.length,
-          });
-
-        if (error) throw error;
+        savedAchievements.push(achievementData);
         toast({ title: "Achievement added successfully" });
       }
+      
+      resumeStorage.save('achievements_saved', savedAchievements);
 
       reset();
       setIsAdding(false);
-      queryClient.invalidateQueries({ queryKey: ["studentAchievements"] });
+      
+      // Trigger page refresh to show updated list
+      window.dispatchEvent(new Event('resumeDataUpdated'));
     } catch (error: any) {
       toast({
         title: "Error saving achievement",
-        description: error.message,
+        description: error.message || "Please try again",
         variant: "destructive",
       });
     }
@@ -80,18 +109,16 @@ export function AchievementsForm({ achievements }: AchievementsFormProps) {
 
   const handleDelete = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from("student_achievements")
-        .delete()
-        .eq("id", id);
-
-      if (error) throw error;
+      const savedAchievements = resumeStorage.load<Achievement[]>('achievements_saved') || [];
+      const filtered = savedAchievements.filter((a: any) => a.id !== id);
+      resumeStorage.save('achievements_saved', filtered);
+      
       toast({ title: "Achievement deleted successfully" });
-      queryClient.invalidateQueries({ queryKey: ["studentAchievements"] });
+      window.dispatchEvent(new Event('resumeDataUpdated'));
     } catch (error: any) {
       toast({
         title: "Error deleting achievement",
-        description: error.message,
+        description: error.message || "Please try again",
         variant: "destructive",
       });
     }
@@ -100,8 +127,16 @@ export function AchievementsForm({ achievements }: AchievementsFormProps) {
   const handleCancel = () => {
     setIsAdding(false);
     setEditingId(null);
+    // Clear draft when canceling
+    resumeStorage.clear('achievements_form');
     reset();
   };
+
+  // Merge saved achievements from localStorage with props
+  const savedAchievements = resumeStorage.load<Achievement[]>('achievements_saved') || [];
+  const allAchievements = [...achievements, ...savedAchievements.filter((a: any) => 
+    !achievements.find((ach: any) => ach.id === a.id)
+  )];
 
   return (
     <Card>
@@ -118,7 +153,7 @@ export function AchievementsForm({ achievements }: AchievementsFormProps) {
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Existing achievements */}
-        {achievements.map((achievement) => (
+        {allAchievements.map((achievement) => (
           <div key={achievement.id} className="p-4 border rounded-lg space-y-2">
             <div className="flex justify-between items-start">
               <div className="flex-1">
@@ -127,7 +162,7 @@ export function AchievementsForm({ achievements }: AchievementsFormProps) {
                   <p className="text-sm text-muted-foreground">{achievement.issuing_body}</p>
                 )}
                 {achievement.achievement_date && (
-                  <p className="text-sm text-muted-foreground">{achievement.achievement_date}</p>
+                  <p className="text-sm text-muted-foreground">{achievement.achievement_date.substring(0, 7)}</p>
                 )}
                 {achievement.description && (
                   <p className="text-sm mt-2">{achievement.description}</p>
@@ -171,7 +206,7 @@ export function AchievementsForm({ achievements }: AchievementsFormProps) {
                 <Input
                   id="title"
                   {...register("title", { required: "Title is required" })}
-                  placeholder="Hackathon Winner"
+                  placeholder="e.g., Hackathon Winner, Dean's List, Best Presentation Award, Leadership Excellence Award"
                 />
                 {errors.title && (
                   <p className="text-sm text-destructive">{errors.title.message}</p>
@@ -183,8 +218,9 @@ export function AchievementsForm({ achievements }: AchievementsFormProps) {
                 <Input
                   id="issuing_body"
                   {...register("issuing_body")}
-                  placeholder="Google Developer Student Club"
+                  placeholder="e.g., Google Developer Student Club, IEEE, ACM, National Science Foundation"
                 />
+                <p className="text-xs text-muted-foreground">Optional: Organization that issued the award</p>
               </div>
 
               <div className="space-y-2">
@@ -194,6 +230,7 @@ export function AchievementsForm({ achievements }: AchievementsFormProps) {
                   type="month"
                   {...register("achievement_date")}
                 />
+                <p className="text-xs text-muted-foreground">Optional: When you received this achievement</p>
               </div>
 
               <div className="space-y-2 md:col-span-2">
@@ -201,9 +238,10 @@ export function AchievementsForm({ achievements }: AchievementsFormProps) {
                 <Textarea
                   id="description"
                   {...register("description")}
-                  placeholder="Brief description of the achievement"
+                  placeholder="e.g., Won first place in a 48-hour hackathon with over 200 participants. Developed an AI-powered solution that reduced processing time by 60%."
                   rows={3}
                 />
+                <p className="text-xs text-muted-foreground">Optional: Describe the achievement and its impact</p>
               </div>
             </div>
 

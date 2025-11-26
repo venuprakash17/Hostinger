@@ -10,20 +10,34 @@ import { ResumePreviewDialog } from "./ResumePreviewDialog";
 import { useStudentProfile } from "@/hooks/useStudentProfile";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, FileText, Lightbulb } from "lucide-react";
+import { ResumeSuggestionsPanel } from "./ResumeSuggestionsPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { useState } from "react";
-import { pdf } from "@react-pdf/renderer";
-import { Document, Page, Text, View, StyleSheet, Link } from "@react-pdf/renderer";
+import { useState, useEffect, useMemo, useCallback, memo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { resumeStorage } from "@/lib/resumeStorage";
 
-export function BuildTab() {
+// Lazy load heavy PDF library only when needed
+let pdfLib: any = null;
+let pdfComponents: any = null;
+
+const loadPdfLib = async () => {
+  if (!pdfLib) {
+    pdfLib = (await import("@react-pdf/renderer")).pdf;
+    pdfComponents = await import("@react-pdf/renderer");
+  }
+  return { pdf: pdfLib, components: pdfComponents };
+};
+
+export const BuildTab = memo(function BuildTab() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [isGenerating, setIsGenerating] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [resumeContent, setResumeContent] = useState<any>(null);
+  const [localData, setLocalData] = useState<any>(null);
   
   const {
     profile,
@@ -38,135 +52,198 @@ export function BuildTab() {
     saveProfile,
   } = useStudentProfile();
 
-  // Calculate profile completeness (only required sections)
-  const calculateCompleteness = () => {
+  // Load saved data from localStorage once on mount
+  useEffect(() => {
+    const savedEducation = resumeStorage.load('education_saved') || [];
+    const savedProjects = resumeStorage.load('projects_saved') || [];
+    
+    setLocalData({
+      education: savedEducation,
+      projects: savedProjects,
+    });
+    // Only run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+    // Listen for data updates and refresh query cache
+    useEffect(() => {
+      const handleUpdate = () => {
+        const savedEducation = resumeStorage.load('education_saved') || [];
+        const savedProjects = resumeStorage.load('projects_saved') || [];
+        const savedProfile = resumeStorage.load('personal_info_saved');
+        setLocalData({
+          education: savedEducation,
+          projects: savedProjects,
+        });
+        // Invalidate queries to trigger re-fetch (this will reload from localStorage)
+        queryClient.invalidateQueries({ queryKey: ["studentProfile"] });
+        queryClient.invalidateQueries({ queryKey: ["studentEducation"] });
+        queryClient.invalidateQueries({ queryKey: ["studentProjects"] });
+        queryClient.invalidateQueries({ queryKey: ["studentSkills"] });
+        queryClient.invalidateQueries({ queryKey: ["studentCertifications"] });
+        queryClient.invalidateQueries({ queryKey: ["studentAchievements"] });
+        queryClient.invalidateQueries({ queryKey: ["studentExtracurricular"] });
+        queryClient.invalidateQueries({ queryKey: ["studentHobbies"] });
+      };
+
+      window.addEventListener('resumeDataUpdated', handleUpdate);
+      return () => window.removeEventListener('resumeDataUpdated', handleUpdate);
+    }, [queryClient]);
+
+  // Merge API data with localStorage data
+  const allEducation = useMemo(() => {
+    const saved = localData?.education || [];
+    // Merge and deduplicate by id
+    const merged = [...education];
+    saved.forEach((item: any) => {
+      if (!merged.find((e: any) => e.id === item.id)) {
+        merged.push(item);
+      }
+    });
+    return merged;
+  }, [education, localData?.education]);
+  
+  const allProjects = useMemo(() => {
+    const saved = localData?.projects || [];
+    const merged = [...projects];
+    saved.forEach((item: any) => {
+      if (!merged.find((p: any) => p.id === item.id)) {
+        merged.push(item);
+      }
+    });
+    return merged;
+  }, [projects, localData?.projects]);
+
+  // Merge skills from localStorage with props
+  const allSkills = useMemo(() => {
+    const savedSkills = resumeStorage.load('skills_saved') || [];
+    const merged = [...skills];
+    savedSkills.forEach((item: any) => {
+      if (!merged.find((s: any) => s.id === item.id)) {
+        merged.push(item);
+      }
+    });
+    return merged;
+  }, [skills]);
+
+  // Memoize profile completeness calculation - Only 2 required sections
+  const completeness = useMemo(() => {
     let completed = 0;
-    let total = 4; // Only count required sections
+    let total = 2; // Only Personal Info and Education are required
 
     // Required sections
     if (profile?.full_name && profile?.email && profile?.phone_number) completed++;
-    if (education.length > 0) completed++;
-    if (projects.length > 0) completed++;
-    if (skills.length > 0) completed++;
-
-    // Optional sections (certifications, achievements, extracurricular)
-    // Not counted towards completeness
+    if (allEducation.length > 0) completed++;
 
     return Math.round((completed / total) * 100);
-  };
+  }, [profile?.full_name, profile?.email, profile?.phone_number, allEducation.length]);
 
-  const completeness = calculateCompleteness();
-
-  const handleGenerateResume = async () => {
-    try {
-      setIsGenerating(true);
-      
-      console.log("Current education data:", education);
-      console.log("Current profile data:", profile);
-      
-      const { data, error } = await supabase.functions.invoke("generate-resume", {
-        body: { targetRole: null },
-      });
-
-      if (error) throw error;
-
-      if (data.error) {
-        throw new Error(data.error);
-      }
-
-      console.log("Generated resume content:", data.resumeContent);
-      console.log("Formatted education:", data.resumeContent.formattedEducation);
-
-      setResumeContent({
-        ...data.resumeContent,
-        profile: data.profile,
-      });
-      setShowPreview(true);
-      
-      toast({
-        title: "Resume generated successfully!",
-        description: `ATS Score: ${data.resumeContent.atsScore || "N/A"}/100`,
-      });
-    } catch (error: any) {
-      console.error("Error generating resume:", error);
-      toast({
-        title: "Failed to generate resume",
-        description: error.message || "Please try again later",
-        variant: "destructive",
-      });
-    } finally {
-      setIsGenerating(false);
+  // Define handleDownloadPDF first to avoid circular dependency
+  const handleDownloadPDF = useCallback(async (resumeData?: any) => {
+    const contentToUse = resumeData || resumeContent;
+    if (!contentToUse || !profile) {
+      // If called without data, can't generate PDF
+      return;
     }
-  };
-
-  const handleDownloadPDF = async () => {
-    if (!resumeContent || !profile) return;
     
     try {
-      // PDF styles
+      // Lazy load PDF library
+      const { pdf, components } = await loadPdfLib();
+      const { Document, Page, Text, View, StyleSheet } = components;
+
+      // PDF styles - Optimized for single page
       const styles = StyleSheet.create({
         page: {
-          padding: 40,
-          fontSize: 11,
+          padding: 30,
+          fontSize: 10,
           fontFamily: 'Helvetica',
+          lineHeight: 1.3,
         },
         header: {
-          marginBottom: 20,
+          marginBottom: 12,
           textAlign: 'center',
           borderBottom: '1pt solid #000',
-          paddingBottom: 10,
+          paddingBottom: 6,
         },
         name: {
-          fontSize: 24,
+          fontSize: 20,
           fontWeight: 'bold',
-          marginBottom: 5,
+          marginBottom: 3,
+          letterSpacing: 0.5,
         },
         contact: {
-          fontSize: 9,
+          fontSize: 8,
           color: '#555',
-          marginBottom: 2,
+          marginBottom: 1,
+          lineHeight: 1.4,
         },
         section: {
-          marginTop: 15,
+          marginTop: 8,
+          marginBottom: 6,
         },
         sectionTitle: {
-          fontSize: 14,
-          fontWeight: 'bold',
-          borderBottom: '1pt solid #000',
-          paddingBottom: 3,
-          marginBottom: 8,
-        },
-        text: {
-          fontSize: 10,
-          lineHeight: 1.5,
-          marginBottom: 5,
-        },
-        subsection: {
-          marginBottom: 10,
-        },
-        title: {
           fontSize: 11,
           fontWeight: 'bold',
-          marginBottom: 2,
+          borderBottom: '1pt solid #000',
+          paddingBottom: 2,
+          marginBottom: 5,
+          textTransform: 'uppercase',
+          letterSpacing: 0.5,
+        },
+        text: {
+          fontSize: 9,
+          lineHeight: 1.3,
+          marginBottom: 3,
+        },
+        summary: {
+          fontSize: 9,
+          lineHeight: 1.4,
+          marginBottom: 8,
+          textAlign: 'justify',
+        },
+        subsection: {
+          marginBottom: 6,
+        },
+        title: {
+          fontSize: 10,
+          fontWeight: 'bold',
+          marginBottom: 1,
         },
         subtitle: {
-          fontSize: 10,
+          fontSize: 9,
           color: '#555',
-          marginBottom: 2,
+          marginBottom: 1,
+          lineHeight: 1.3,
         },
         date: {
-          fontSize: 9,
+          fontSize: 8,
           color: '#666',
           fontStyle: 'italic',
+          marginBottom: 2,
         },
         bullet: {
-          fontSize: 10,
-          marginLeft: 10,
-          marginBottom: 2,
+          fontSize: 9,
+          marginLeft: 8,
+          marginBottom: 1.5,
+          lineHeight: 1.3,
         },
         link: {
           color: '#0066cc',
           textDecoration: 'none',
+        },
+        compactRow: {
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          marginBottom: 2,
+        },
+        skillCategory: {
+          fontSize: 9,
+          fontWeight: 'bold',
+          marginBottom: 2,
+        },
+        skillItems: {
+          fontSize: 9,
+          lineHeight: 1.4,
         },
       });
 
@@ -182,99 +259,136 @@ export function BuildTab() {
               </Text>
               {(profile.linkedin_profile || profile.github_portfolio) && (
                 <Text style={styles.contact}>
-                  {profile.linkedin_profile && `LinkedIn: ${profile.linkedin_profile}`}
+                  {profile.linkedin_profile && (
+                    profile.linkedin_profile.startsWith('http') 
+                      ? profile.linkedin_profile 
+                      : `https://www.linkedin.com/in/${profile.linkedin_profile.replace(/^https?:\/\/(www\.)?linkedin\.com\/in\//, '').replace(/\/$/, '')}`
+                  )}
                   {profile.linkedin_profile && profile.github_portfolio && ' | '}
-                  {profile.github_portfolio && `GitHub: ${profile.github_portfolio}`}
+                  {profile.github_portfolio && (
+                    profile.github_portfolio.startsWith('http')
+                      ? profile.github_portfolio
+                      : `https://github.com/${profile.github_portfolio.replace(/^https?:\/\/(www\.)?github\.com\//, '').replace(/\/$/, '')}`
+                  )}
                 </Text>
               )}
             </View>
 
             {/* Summary */}
-            {resumeContent.summary && (
+            {contentToUse.summary && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>PROFESSIONAL SUMMARY</Text>
-                <Text style={styles.text}>{resumeContent.summary}</Text>
+                <Text style={styles.summary}>{contentToUse.summary}</Text>
               </View>
             )}
 
-            {/* Education */}
-            {resumeContent.formattedEducation?.length > 0 && (
+              {/* Education - Compact Layout */}
+              {contentToUse.formattedEducation?.length > 0 && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>EDUCATION</Text>
-                {resumeContent.formattedEducation.map((edu: any, idx: number) => {
+                  {contentToUse.formattedEducation
+                    .sort((a: any, b: any) => {
+                      // Sort by end date (most recent first), or by start date if both are current
+                      const aEnd = a.end_date || a.end || a.endDate || '';
+                      const bEnd = b.end_date || b.end || b.endDate || '';
+                      const aCurrent = a.is_current || /present/i.test(aEnd);
+                      const bCurrent = b.is_current || /present/i.test(bEnd);
+                      
+                      if (aCurrent && !bCurrent) return -1;
+                      if (!aCurrent && bCurrent) return 1;
+                      if (aEnd && bEnd) return bEnd.localeCompare(aEnd);
+                      return 0;
+                    })
+                    .map((edu: any, idx: number) => {
                   const institution = edu.institution_name || edu.institution || edu.school || edu.university || edu.college;
-                  const degree = edu.degree || edu.degree_title || edu.title;
+                  let degree = edu.degree || edu.degree_title || edu.title || '';
+                  // Fix common degree abbreviations
+                  degree = degree.replace(/^B\.tech$/i, 'B.Tech').replace(/^b\.tech$/i, 'B.Tech');
+                  degree = degree.replace(/^M\.tech$/i, 'M.Tech').replace(/^m\.tech$/i, 'M.Tech');
                   const field = edu.field_of_study || edu.major || edu.specialization;
-                  const start = edu.start_date || edu.start || edu.startDate;
+                  const start = edu.start_date ? edu.start_date.substring(0, 4) : (edu.start ? edu.start.substring(0, 4) : (edu.startDate ? edu.startDate.substring(0, 4) : ''));
                   const endRaw = edu.end_date || edu.end || edu.endDate;
                   const isCurrent = (edu.is_current ?? edu.current) ?? (typeof endRaw === 'string' && /present/i.test(endRaw));
-                  const end = isCurrent ? 'Present' : endRaw;
+                  const end = isCurrent ? 'Present' : (endRaw ? endRaw.substring(0, 4) : '');
                   const cgpa = edu.cgpa_percentage || edu.cgpa || edu.gpa || edu.score;
 
                   return (
                     <View key={idx} style={styles.subsection}>
-                      <Text style={styles.title}>{degree || institution}</Text>
-                      {(institution || field) && (
-                        <Text style={styles.subtitle}>{institution || field}</Text>
-                      )}
-                      {(start || end) && (
-                        <Text style={styles.date}>{start} - {end}</Text>
-                      )}
-                      {cgpa && (
-                        <Text style={styles.text}>CGPA: {cgpa}</Text>
-                      )}
+                      <View style={styles.compactRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.title}>{degree || institution}</Text>
+                          {(institution || field) && (
+                            <Text style={styles.subtitle}>
+                              {institution}{field ? ` • ${field}` : ''}
+                              {cgpa ? ` • CGPA: ${cgpa}` : ''}
+                            </Text>
+                          )}
+                        </View>
+                        {(start || end) && (
+                          <Text style={styles.date}>{start} - {end}</Text>
+                        )}
+                      </View>
                     </View>
                   );
                 })}
               </View>
             )}
 
-            {/* Skills */}
-            {resumeContent.formattedSkills && (
+              {/* Skills - Compact Layout */}
+              {contentToUse.formattedSkills && Object.keys(contentToUse.formattedSkills).length > 0 && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>SKILLS</Text>
-                {Object.entries(resumeContent.formattedSkills).map(
-                  ([category, skills]: [string, any]) => (
-                    <Text key={category} style={styles.text}>
-                      <Text style={{ fontWeight: 'bold' }}>{category.toUpperCase()}: </Text>
-                      {Array.isArray(skills) ? skills.join(', ') : skills}
-                    </Text>
-                  )
+                  {Object.entries(contentToUse.formattedSkills).map(
+                  ([category, skills]: [string, any]) => {
+                    const skillList = Array.isArray(skills) ? skills : [];
+                    if (skillList.length === 0) return null;
+                    return (
+                      <View key={category} style={{ marginBottom: 3 }}>
+                        <Text style={styles.skillCategory}>{category.charAt(0).toUpperCase() + category.slice(1)}: </Text>
+                        <Text style={styles.skillItems}>{skillList.join(' • ')}</Text>
+                      </View>
+                    );
+                  }
                 )}
               </View>
             )}
 
-            {/* Projects */}
-            {resumeContent.formattedProjects?.length > 0 && (
+              {/* Projects - Compact Layout */}
+              {contentToUse.formattedProjects?.length > 0 && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>PROJECTS</Text>
-                {resumeContent.formattedProjects.map((project: any, idx: number) => (
+                  {contentToUse.formattedProjects.slice(0, 3).map((project: any, idx: number) => (
                   <View key={idx} style={styles.subsection}>
-                    <Text style={styles.title}>
-                      {project.project_title || project.title}
-                    </Text>
-                    {project.description && (
-                      <Text style={styles.text}>{project.description}</Text>
-                    )}
+                    <View style={styles.compactRow}>
+                      <Text style={styles.title}>
+                        {project.project_title || project.title}
+                      </Text>
+                      {project.duration_start && project.duration_end && (
+                        <Text style={styles.date}>
+                          {project.duration_start.substring(0, 4)} - {project.duration_end.substring(0, 4)}
+                        </Text>
+                      )}
+                    </View>
                     {project.technologies_used && project.technologies_used.length > 0 && (
                       <Text style={styles.subtitle}>
-                        Technologies: {Array.isArray(project.technologies_used) 
-                          ? project.technologies_used.join(', ') 
+                        {Array.isArray(project.technologies_used) 
+                          ? project.technologies_used.slice(0, 8).join(' • ') 
                           : project.technologies_used}
                       </Text>
                     )}
                     {project.contributions && project.contributions.length > 0 && (
-                      <View style={{ marginTop: 4 }}>
-                        {project.contributions.map((contribution: string, cIdx: number) => (
+                      <View style={{ marginTop: 2 }}>
+                        {project.contributions.slice(0, 4).map((contribution: string, cIdx: number) => (
                           <Text key={cIdx} style={styles.bullet}>
                             • {contribution}
                           </Text>
                         ))}
                       </View>
                     )}
-                    {project.duration_start && project.duration_end && (
-                      <Text style={styles.date}>
-                        {project.duration_start} - {project.duration_end}
+                    {/* Fallback: Use role_contribution if contributions array is not available */}
+                    {(!project.contributions || project.contributions.length === 0) && project.role_contribution && (
+                      <Text style={styles.bullet}>
+                        • {project.role_contribution}
                       </Text>
                     )}
                   </View>
@@ -282,57 +396,98 @@ export function BuildTab() {
               </View>
             )}
 
-            {/* Certifications */}
-            {resumeContent.formattedCertifications?.length > 0 && (
+              {/* Certifications - Inline Layout */}
+              {contentToUse.formattedCertifications && contentToUse.formattedCertifications.length > 0 && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>CERTIFICATIONS</Text>
-                {resumeContent.formattedCertifications.map((cert: any, idx: number) => (
-                  <Text key={idx} style={styles.bullet}>
-                    • {cert.certification_name} - {cert.issuing_organization}
-                    {cert.issue_date && ` (${cert.issue_date})`}
-                  </Text>
-                ))}
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                    {contentToUse.formattedCertifications
+                      .filter((cert: any) => cert && (cert.certification_name || cert.title))
+                      .slice(0, 5)
+                      .map((cert: any, idx: number, arr: any[]) => {
+                        const certName = cert.certification_name || cert.title || cert.name || '';
+                        const org = cert.issuing_organization || cert.organization || cert.issuer || '';
+                        const date = cert.issue_date || cert.date_issued || cert.date || '';
+                        
+                        let certText = certName;
+                        if (org && org.trim() && org.trim() !== certName.trim()) {
+                          certText += `, ${org}`;
+                        }
+                        if (date && date.trim()) {
+                          const formattedDate = date.length > 4 ? date.substring(0, 4) : date;
+                          certText += ` (${formattedDate})`;
+                        }
+                        
+                        return (
+                          <Text key={idx} style={[styles.bullet, { marginRight: 8 }]}>
+                            {idx > 0 ? '• ' : ''}{certText}{idx < arr.length - 1 ? '' : ''}
+                          </Text>
+                        );
+                      })}
+                  </View>
               </View>
             )}
 
-            {/* Achievements */}
-            {resumeContent.formattedAchievements?.length > 0 && (
+              {/* Achievements - Compact */}
+              {contentToUse.formattedAchievements && contentToUse.formattedAchievements.length > 0 && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>ACHIEVEMENTS</Text>
-                {resumeContent.formattedAchievements.map((ach: any, idx: number) => (
-                  <Text key={idx} style={styles.bullet}>
-                    • {ach.achievement_title}: {ach.description}
-                  </Text>
-                ))}
+                  {contentToUse.formattedAchievements
+                    .filter((ach: any) => ach && (ach.achievement_title || ach.title))
+                    .slice(0, 3)
+                    .map((ach: any, idx: number) => {
+                      const title = ach.achievement_title || ach.title || '';
+                      const desc = ach.description || '';
+                      const issuer = ach.issuing_body || ach.issuer || '';
+                      
+                      let achievementText = title;
+                      if (desc && desc.trim() && desc.length < 80) {
+                        achievementText += `: ${desc}`;
+                      } else if (desc && desc.trim()) {
+                        achievementText += `: ${desc.substring(0, 80)}...`;
+                      }
+                      if (issuer && issuer.trim()) {
+                        achievementText += ` (${issuer})`;
+                      }
+                      
+                      return (
+                        <Text key={idx} style={styles.bullet}>
+                          • {achievementText}
+                        </Text>
+                      );
+                    })}
               </View>
             )}
 
-            {/* Extracurricular */}
-            {resumeContent.formattedExtracurricular?.length > 0 && (
+              {/* Extracurricular - Compact */}
+              {contentToUse.formattedExtracurricular && contentToUse.formattedExtracurricular.length > 0 && (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>EXTRACURRICULAR ACTIVITIES</Text>
-                {resumeContent.formattedExtracurricular.map((extra: any, idx: number) => (
-                  <View key={idx} style={styles.subsection}>
-                    <Text style={styles.title}>
-                      {extra.activity_organization || extra.activity_name}
-                      {extra.role && ` - ${extra.role}`}
+                <Text style={styles.sectionTitle}>EXTRACURRICULAR</Text>
+                  {contentToUse.formattedExtracurricular.slice(0, 2).map((extra: any, idx: number) => (
+                  <View key={idx} style={{ marginBottom: 3 }}>
+                    <Text style={styles.bullet}>
+                      • <Text style={styles.title}>
+                        {extra.activity_organization || extra.activity_name}
+                        {extra.role && ` - ${extra.role}`}
+                      </Text>
+                      {extra.description && extra.description.length < 60 && (
+                        <Text style={styles.text}>: {extra.description}</Text>
+                      )}
                     </Text>
-                    {extra.description && (
-                      <Text style={styles.text}>{extra.description}</Text>
-                    )}
                   </View>
                 ))}
               </View>
             )}
 
-            {/* Hobbies */}
-            {resumeContent.formattedHobbies?.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>HOBBIES & INTERESTS</Text>
-                <Text style={styles.text}>
-                  {resumeContent.formattedHobbies
+              {/* Hobbies - Inline */}
+              {contentToUse.formattedHobbies && contentToUse.formattedHobbies.length > 0 && (
+              <View style={[styles.section, { marginTop: 4 }]}>
+                <Text style={styles.sectionTitle}>INTERESTS</Text>
+                  <Text style={styles.text}>
+                    {contentToUse.formattedHobbies
                     .map((hobby: any) => typeof hobby === 'string' ? hobby : (hobby.hobby_name || hobby.name || hobby.title || ''))
                     .filter((s: string) => s && s.trim())
+                    .slice(0, 6)
                     .join(' • ')}
                 </Text>
               </View>
@@ -358,7 +513,7 @@ export function BuildTab() {
         title: "Resume Downloaded",
         description: "Your resume has been downloaded as a PDF.",
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Download error:", error);
       toast({
         title: "Download Failed",
@@ -366,7 +521,78 @@ export function BuildTab() {
         variant: "destructive",
       });
     }
-  };
+    }, [allEducation, allProjects, allSkills, certifications, achievements, extracurricular, hobbies, profile, toast, resumeContent]);
+
+  // Define handleGenerateResume after handleDownloadPDF
+  const handleGenerateResume = useCallback(async () => {
+    try {
+      setIsGenerating(true);
+      
+      if (!profile || !profile.full_name || !profile.email || !profile.phone_number) {
+        toast({
+          title: "Personal Information Required",
+          description: "Please complete your personal information (name, email, phone) first",
+          variant: "destructive",
+        });
+        setIsGenerating(false);
+        return;
+      }
+
+      if (allEducation.length === 0) {
+        toast({
+          title: "Education Required",
+          description: "Please add at least one education entry",
+          variant: "destructive",
+        });
+        setIsGenerating(false);
+        return;
+      }
+
+      toast({
+        title: "Enhancing Resume with AI",
+        description: "Generating ATS-friendly resume... This may take a few seconds.",
+      });
+
+      // Prepare resume data for AI enhancement
+      const resumeData = {
+        profile,
+        education: allEducation,
+        projects: allProjects.length > 0 ? allProjects : undefined,
+        skills: allSkills.length > 0 ? allSkills : undefined,
+        certifications: certifications.length > 0 ? certifications : undefined,
+        achievements: achievements.length > 0 ? achievements : undefined,
+        extracurricular: extracurricular.length > 0 ? extracurricular : undefined,
+        hobbies: hobbies.length > 0 ? hobbies : undefined,
+      };
+
+      // Import and call AI enhancer
+      const { enhanceResumeWithAI } = await import("@/lib/aiResumeEnhancer");
+      const enhancedResume = await enhanceResumeWithAI(resumeData);
+
+      setResumeContent(enhancedResume);
+      
+      // Generate and download PDF using the AI-enhanced resume
+      await handleDownloadPDF(enhancedResume);
+      
+      toast({
+        title: "Resume Generated Successfully!",
+        description: enhancedResume.atsScore 
+          ? `Your ATS-friendly resume has been generated (ATS Score: ${enhancedResume.atsScore}/100)`
+          : "Your ATS-friendly resume has been generated and downloaded!",
+        variant: "default",
+      });
+      
+      setIsGenerating(false);
+    } catch (error: any) {
+      console.error("Error generating resume:", error);
+      toast({
+        title: "Failed to generate resume",
+        description: error.message || "Please try again later",
+        variant: "destructive",
+      });
+      setIsGenerating(false);
+    }
+  }, [profile, allEducation, allProjects, allSkills, certifications, achievements, extracurricular, hobbies, handleDownloadPDF, toast]);
 
   if (isLoading) {
     return (
@@ -401,8 +627,8 @@ export function BuildTab() {
       <Alert>
         <AlertDescription>
           Fill in the required sections below to create your resume profile. You can edit any section at any time.
-          <strong className="block mt-2">Required:</strong> Personal Info, Education, Projects, Skills
-          <strong className="block mt-1">Optional:</strong> Certifications, Achievements, Extracurricular, Hobbies
+          <strong className="block mt-2">Required:</strong> Personal Info, Education
+          <strong className="block mt-1">Optional (Enhance Resume):</strong> Projects, Skills, Certifications, Achievements, Extracurricular, Hobbies
           {completeness < 100 && (
             <strong className="block mt-2 text-primary">
               Complete required sections ({completeness}% done) to unlock the "Generate Resume PDF" button.
@@ -410,6 +636,16 @@ export function BuildTab() {
           )}
         </AlertDescription>
       </Alert>
+
+      {/* ATS Score & Suggestions Panel - Always Visible */}
+      <ResumeSuggestionsPanel
+        atsScore={resumeContent?.atsScore}
+        recommendations={resumeContent?.recommendations}
+        profile={profile}
+        education={allEducation}
+        projects={allProjects}
+        skills={allSkills}
+      />
 
       {/* Personal Information */}
       <PersonalInfoForm
@@ -419,13 +655,13 @@ export function BuildTab() {
       />
 
       {/* Education */}
-      <EducationForm education={education} />
+      <EducationForm education={allEducation} />
 
       {/* Projects */}
-      <ProjectsForm projects={projects} />
+      <ProjectsForm projects={allProjects} />
 
       {/* Skills */}
-      <SkillsForm skills={skills} />
+      <SkillsForm skills={allSkills} />
 
       {/* Certifications */}
       <CertificationsForm certifications={certifications} />
@@ -481,30 +717,6 @@ export function BuildTab() {
         onDownload={handleDownloadPDF}
       />
 
-      {/* AI Suggestions Section - Separate from Resume */}
-      {resumeContent?.recommendations && resumeContent.recommendations.length > 0 && (
-        <Card className="border-primary/20 bg-primary/5">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Lightbulb className="w-5 h-5 text-primary" />
-              AI Recommendations for Improvement
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground mb-4">
-              These suggestions can help enhance your resume. They are not included in the downloaded PDF.
-            </p>
-            <ul className="space-y-2">
-              {resumeContent.recommendations.map((rec: string, idx: number) => (
-                <li key={idx} className="flex items-start gap-3 text-sm">
-                  <span className="text-primary font-bold mt-0.5">•</span>
-                  <span>{rec}</span>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
-}
+});

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { authHelpers } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 
 export interface StudentProfile {
@@ -83,166 +83,199 @@ export function useStudentProfile() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Fetch profile
+  // Fetch profile - using localStorage for now until API is ready
   const { data: profile, isLoading: profileLoading } = useQuery({
     queryKey: ["studentProfile"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      try {
+        const user = await authHelpers.getUser();
+        if (!user) {
+          // Try to load from localStorage anyway for offline support
+          const { resumeStorage } = await import("@/lib/resumeStorage");
+          return resumeStorage.load('personal_info_saved') || null;
+        }
 
-      const { data, error } = await supabase
-        .from("student_profiles")
-        .select("*")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (error && error.code !== "PGRST116") throw error;
-      return data;
+        // TODO: Replace with API call when backend endpoint is ready
+        // For now, load from localStorage
+        const { resumeStorage } = await import("@/lib/resumeStorage");
+        const savedProfile = resumeStorage.load('personal_info_saved');
+        return savedProfile || null;
+      } catch (error) {
+        // User not authenticated or API error - try localStorage
+        try {
+          const { resumeStorage } = await import("@/lib/resumeStorage");
+          return resumeStorage.load('personal_info_saved') || null;
+        } catch {
+          return null;
+        }
+      }
     },
+    staleTime: 5 * 60 * 1000,
+    cacheTime: 10 * 60 * 1000,
+    retry: false, // Don't retry on auth errors
   });
 
-  // Fetch education
+  // Shared query options for better performance
+  const sharedQueryOptions = {
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    cacheTime: 10 * 60 * 1000, // 10 minutes
+  };
+
+  // Fetch education - using localStorage for now
   const { data: education = [], isLoading: educationLoading } = useQuery({
     queryKey: ["studentEducation"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      try {
+        const user = await authHelpers.getUser();
+        if (!user) return [];
 
-      const { data, error } = await supabase
-        .from("student_education")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("display_order");
-
-      if (error) throw error;
-      return data || [];
+        // TODO: Replace with API call when backend endpoint is ready
+        // For now, load from localStorage
+        const { resumeStorage } = await import("@/lib/resumeStorage");
+        return resumeStorage.load('education_saved') || [];
+      } catch (error) {
+        // Return empty array on error
+        return [];
+      }
     },
+    ...sharedQueryOptions,
+    retry: false,
   });
 
-  // Fetch projects
+  // Fetch projects - using localStorage for now
   const { data: projects = [], isLoading: projectsLoading } = useQuery({
     queryKey: ["studentProjects"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      try {
+        const user = await authHelpers.getUser();
+        if (!user) return [];
 
-      const { data, error } = await supabase
-        .from("student_projects")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("display_order");
-
-      if (error) throw error;
-      return data || [];
+        // TODO: Replace with API call when backend endpoint is ready
+        const { resumeStorage } = await import("@/lib/resumeStorage");
+        return resumeStorage.load('projects_saved') || [];
+      } catch (error) {
+        return [];
+      }
     },
+    ...sharedQueryOptions,
+    retry: false,
   });
 
-  // Fetch skills
+  // Fetch skills - using localStorage for now
   const { data: skills = [], isLoading: skillsLoading } = useQuery({
     queryKey: ["studentSkills"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      try {
+        const user = await authHelpers.getUser();
+        if (!user) return [];
 
-      const { data, error } = await supabase
-        .from("student_skills")
-        .select("*")
-        .eq("user_id", user.id);
-
-      if (error) throw error;
-      return data || [];
+        // TODO: Replace with API call when backend endpoint is ready
+        // For now, load from localStorage
+        const { resumeStorage } = await import("@/lib/resumeStorage");
+        return resumeStorage.load('skills_saved') || [];
+      } catch (error) {
+        return [];
+      }
     },
+    ...sharedQueryOptions,
+    retry: false,
   });
 
-  // Fetch certifications
+  // Fetch certifications - using localStorage for now
   const { data: certifications = [], isLoading: certificationsLoading } = useQuery({
     queryKey: ["studentCertifications"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      try {
+        const user = await authHelpers.getUser();
+        if (!user) return [];
 
-      const { data, error } = await supabase
-        .from("student_certifications")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("display_order");
-
-      if (error) throw error;
-      return data || [];
+        // TODO: Replace with API call when backend endpoint is ready
+        const { resumeStorage } = await import("@/lib/resumeStorage");
+        return resumeStorage.load('certifications_saved') || [];
+      } catch (error) {
+        return [];
+      }
     },
+    ...sharedQueryOptions,
+    retry: false,
   });
 
-  // Fetch achievements
+  // Fetch achievements - using localStorage for now
   const { data: achievements = [], isLoading: achievementsLoading } = useQuery({
     queryKey: ["studentAchievements"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      try {
+        const user = await authHelpers.getUser();
+        if (!user) return [];
 
-      const { data, error } = await supabase
-        .from("student_achievements")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("display_order");
-
-      if (error) throw error;
-      return data || [];
+        // TODO: Replace with API call when backend endpoint is ready
+        const { resumeStorage } = await import("@/lib/resumeStorage");
+        return resumeStorage.load('achievements_saved') || [];
+      } catch (error) {
+        return [];
+      }
     },
+    ...sharedQueryOptions,
+    retry: false,
   });
 
-  // Fetch extracurricular
+  // Fetch extracurricular - using localStorage for now
   const { data: extracurricular = [], isLoading: extracurricularLoading } = useQuery({
     queryKey: ["studentExtracurricular"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      try {
+        const user = await authHelpers.getUser();
+        if (!user) return [];
 
-      const { data, error } = await supabase
-        .from("student_extracurricular")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("display_order");
-
-      if (error) throw error;
-      return data || [];
+        // TODO: Replace with API call when backend endpoint is ready
+        const { resumeStorage } = await import("@/lib/resumeStorage");
+        return resumeStorage.load('extracurricular_saved') || [];
+      } catch (error) {
+        return [];
+      }
     },
+    ...sharedQueryOptions,
+    retry: false,
   });
 
-  // Fetch hobbies
+  // Fetch hobbies - using localStorage for now
   const { data: hobbies = [], isLoading: hobbiesLoading } = useQuery({
     queryKey: ["studentHobbies"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      try {
+        const user = await authHelpers.getUser();
+        if (!user) return [];
 
-      const { data, error } = await supabase
-        .from("hobbies")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("display_order");
-
-      if (error) throw error;
-      return data || [];
+        // TODO: Replace with API call when backend endpoint is ready
+        const { resumeStorage } = await import("@/lib/resumeStorage");
+        return resumeStorage.load('hobbies_saved') || [];
+      } catch (error) {
+        return [];
+      }
     },
+    ...sharedQueryOptions,
+    retry: false,
   });
 
-  // Save profile mutation
+  // Save profile mutation - using localStorage for now
   const saveProfile = useMutation({
     mutationFn: async (profileData: StudentProfile) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      try {
+        const user = await authHelpers.getUser();
+        if (!user) throw new Error("Not authenticated");
 
-      const { data, error } = await supabase
-        .from("student_profiles")
-        .upsert({
-          user_id: user.id,
-          ...profileData,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
+        // TODO: Replace with API call when backend endpoint is ready
+        // For now, save to localStorage
+        const { resumeStorage } = await import("@/lib/resumeStorage");
+        resumeStorage.save('personal_info_saved', profileData);
+        
+        return profileData;
+      } catch (error: any) {
+        // Still save to localStorage even if auth fails
+        const { resumeStorage } = await import("@/lib/resumeStorage");
+        resumeStorage.save('personal_info_saved', profileData);
+        return profileData;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["studentProfile"] });
@@ -251,7 +284,7 @@ export function useStudentProfile() {
     onError: (error: any) => {
       toast({ 
         title: "Error saving profile", 
-        description: error.message,
+        description: error.message || "Saved to local storage",
         variant: "destructive" 
       });
     },

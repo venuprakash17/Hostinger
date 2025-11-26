@@ -1,20 +1,35 @@
-import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useEffect, useMemo, useState } from "react";
+import { Building2, Plus, Settings2 } from "lucide-react";
+import { toast } from "sonner";
+
+import { useUserRole } from "@/hooks/useUserRole";
+import { apiClient } from "@/integrations/api/client";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { toast } from "sonner";
-import { Building2, Plus, Edit, Trash2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -23,358 +38,540 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 
-interface Department {
-  id: string;
+interface DepartmentOption {
+  id: number;
   name: string;
-  code: string;
+  code?: string | null;
+}
+
+interface SemesterOption {
+  id: number;
+  name: string;
+  number: number;
 }
 
 interface Section {
-  id: string;
+  id: number;
   name: string;
-  year: number;
-  semester: number;
-  department_id: string;
-  departments?: { name: string };
-}
-
-interface FacultyAssignment {
-  id: string;
-  faculty_id: string;
-  section_id: string;
-  subject: string;
-  profiles?: { full_name: string; email: string };
+  department_id: number;
+  department_name?: string | null;
+  semester_id?: number | null;
+  semester_name?: string | null;
+  college_id: number;
+  year?: number | null;
+  is_active: boolean;
+  created_at: string;
 }
 
 export default function ManageSections() {
-  const [departments, setDepartments] = useState<Department[]>([]);
+  const { isSuperAdmin, isAdmin, isHOD } = useUserRole();
+
   const [sections, setSections] = useState<Section[]>([]);
-  const [assignments, setAssignments] = useState<FacultyAssignment[]>([]);
-  const [faculty, setFaculty] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
-  
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [semesters, setSemesters] = useState<SemesterOption[]>([]);
+  const [colleges, setColleges] = useState<any[]>([]);
+
+  const [collegeId, setCollegeId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingSection, setEditingSection] = useState<Section | null>(null);
+
   const [formData, setFormData] = useState({
     name: "",
     departmentId: "",
+    semesterId: "",
     year: "",
-    semester: ""
-  });
-
-  const [assignData, setAssignData] = useState({
-    facultyId: "",
-    sectionId: "",
-    subject: ""
   });
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    fetchProfile();
+    if (isSuperAdmin) {
+      fetchColleges();
+    }
+  }, [isSuperAdmin, isHOD]);
 
-  const fetchData = async () => {
-    const [deptRes, sectRes, assignRes] = await Promise.all([
-      supabase.from("departments").select("*"),
-      supabase.from("sections").select("*, departments(name)"),
-      supabase.from("faculty_sections").select("*")
-    ]);
+  useEffect(() => {
+    if (collegeId || isHOD) {
+      fetchDepartments();
+      fetchSemesters();
+      fetchSections();
+    } else {
+      setDepartments([]);
+      setSemesters([]);
+      setSections([]);
+    }
+  }, [collegeId, isHOD]);
 
-    if (deptRes.data) setDepartments(deptRes.data);
-    if (sectRes.data) setSections(sectRes.data);
-    
-    // Fetch assignments with faculty details
-    if (assignRes.data) {
-      const assignmentsWithProfiles = await Promise.all(
-        assignRes.data.map(async (assignment) => {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("full_name, email")
-            .eq("id", assignment.faculty_id)
-            .single();
-          
-          return { ...assignment, profiles: profile };
-        })
+  const fetchProfile = async () => {
+    try {
+      const profile = await apiClient.getCurrentUserProfile();
+      if (profile.college_id && !isSuperAdmin) {
+        setCollegeId(profile.college_id);
+      }
+      // For HOD, fetch their department and auto-set it
+      if (isHOD && profile.department) {
+        const depts = await apiClient.getDepartments(profile.college_id);
+        const hodDept = depts?.find((d: any) => d.name === profile.department);
+        if (hodDept && formData.departmentId === "") {
+          setFormData(prev => ({ ...prev, departmentId: hodDept.id.toString() }));
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch profile:", error);
+    }
+  };
+
+  const fetchColleges = async () => {
+    try {
+      const data = await apiClient.get<any[]>('/colleges');
+      setColleges(data || []);
+      if (!collegeId && data?.length === 1) {
+        setCollegeId(data[0].id);
+      }
+    } catch (error) {
+      console.error("Failed to fetch colleges:", error);
+    }
+  };
+
+  const fetchDepartments = async () => {
+    try {
+      const data = await apiClient.getDepartments(collegeId || undefined);
+      setDepartments(
+        (data || []).map((dept: any) => ({
+          id: dept.id,
+          name: dept.name,
+          code: dept.code || null,
+        }))
       );
-      setAssignments(assignmentsWithProfiles);
+    } catch (error) {
+      console.error("Failed to fetch departments:", error);
+      toast.error("Failed to load departments");
     }
-    
-    // Fetch faculty users
-    const { data: userRoles } = await supabase
-      .from("user_roles")
-      .select("user_id")
-      .eq("role", "faculty");
-    
-    if (userRoles) {
-      const facultyIds = userRoles.map(ur => ur.user_id);
-      const { data: facultyProfiles } = await supabase
-        .from("profiles")
-        .select("id, full_name, email")
-        .in("id", facultyIds);
-      
-      if (facultyProfiles) setFaculty(facultyProfiles);
-    }
+  };
 
-    setLoading(false);
+  const fetchSemesters = async () => {
+    try {
+      const data = await apiClient.getSemesters(collegeId || undefined);
+      setSemesters(
+        (data || []).map((sem: any) => ({
+          id: sem.id,
+          name: sem.name,
+          number: sem.number,
+        }))
+      );
+    } catch (error) {
+      console.error("Failed to fetch semesters:", error);
+    }
+  };
+
+  const fetchSections = async () => {
+    if (!collegeId) return;
+    setLoading(true);
+    try {
+      const data = await apiClient.getSections(collegeId);
+      setSections(data || []);
+    } catch (error) {
+      console.error("Failed to fetch sections:", error);
+      toast.error("Failed to load sections");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      name: "",
+      departmentId: "",
+      semesterId: "",
+      year: "",
+    });
+  };
+
+  const handleOpenCreate = () => {
+    resetForm();
+    setCreateDialogOpen(true);
   };
 
   const handleCreateSection = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    const { error } = await supabase.from("sections").insert({
-      name: formData.name,
-      department_id: formData.departmentId,
-      year: parseInt(formData.year),
-      semester: parseInt(formData.semester)
-    });
 
-    if (error) {
-      toast.error(error.message);
-    } else {
+    if (!collegeId && isSuperAdmin) {
+      toast.error("Select a college before creating sections");
+      return;
+    }
+
+    if (!formData.departmentId) {
+      toast.error("Department is required");
+      return;
+    }
+
+    try {
+      await apiClient.createSection({
+        name: formData.name.trim(),
+        department_id: parseInt(formData.departmentId, 10),
+        semester_id: formData.semesterId ? parseInt(formData.semesterId, 10) : undefined,
+        year: formData.year ? parseInt(formData.year, 10) : undefined,
+        college_id: isSuperAdmin ? collegeId || undefined : undefined,
+      });
       toast.success("Section created successfully");
-      setDialogOpen(false);
-      setFormData({ name: "", departmentId: "", year: "", semester: "" });
-      fetchData();
+      setCreateDialogOpen(false);
+      resetForm();
+      fetchSections();
+    } catch (error: any) {
+      console.error("Failed to create section:", error);
+      toast.error(error.message || "Failed to create section");
     }
   };
 
-  const handleAssignFaculty = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    const { error } = await supabase.from("faculty_sections").insert({
-      faculty_id: assignData.facultyId,
-      section_id: assignData.sectionId,
-      subject: assignData.subject
+  const handleOpenEdit = (section: Section) => {
+    setEditingSection(section);
+    setFormData({
+      name: section.name,
+      departmentId: section.department_id.toString(),
+      semesterId: section.semester_id ? section.semester_id.toString() : "",
+      year: section.year ? section.year.toString() : "",
     });
+    setEditDialogOpen(true);
+  };
 
-    if (error) {
-      toast.error(error.message);
-    } else {
-      toast.success("Faculty assigned successfully");
-      setAssignDialogOpen(false);
-      setAssignData({ facultyId: "", sectionId: "", subject: "" });
-      fetchData();
+  const handleUpdateSection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSection) return;
+
+    try {
+      await apiClient.updateSection(editingSection.id, {
+        name: formData.name.trim(),
+        department_id: formData.departmentId ? parseInt(formData.departmentId, 10) : undefined,
+        semester_id: formData.semesterId ? parseInt(formData.semesterId, 10) : undefined,
+        year: formData.year ? parseInt(formData.year, 10) : undefined,
+      });
+      toast.success("Section updated successfully");
+      setEditDialogOpen(false);
+      setEditingSection(null);
+      resetForm();
+      fetchSections();
+    } catch (error: any) {
+      console.error("Failed to update section:", error);
+      toast.error(error.message || "Failed to update section");
     }
   };
 
-  const handleDeleteSection = async (id: string) => {
-    const { error } = await supabase.from("sections").delete().eq("id", id);
-    
-    if (error) {
-      toast.error(error.message);
-    } else {
-      toast.success("Section deleted");
-      fetchData();
+  const handleToggleSection = async (section: Section) => {
+    try {
+      await apiClient.updateSection(section.id, {
+        is_active: !section.is_active,
+      });
+      toast.success(section.is_active ? "Section deactivated" : "Section activated");
+      fetchSections();
+    } catch (error: any) {
+      console.error("Failed to toggle section:", error);
+      toast.error(error.message || "Failed to update section status");
     }
   };
+
+  const departmentLookup = useMemo(() => {
+    const lookup = new Map<number, string>();
+    departments.forEach((dept) => lookup.set(dept.id, dept.name));
+    return lookup;
+  }, [departments]);
+
+  const semesterLookup = useMemo(() => {
+    const lookup = new Map<number, string>();
+    semesters.forEach((sem) => lookup.set(sem.id, sem.name));
+    return lookup;
+  }, [semesters]);
 
   return (
     <div className="container py-8 space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-2">
           <Building2 className="h-8 w-8 text-primary" />
           <div>
             <h1 className="text-3xl font-bold">Manage Sections</h1>
-            <p className="text-muted-foreground">Create sections and assign faculty</p>
+            <p className="text-muted-foreground">
+              Define class sections that faculty can use when taking attendance
+            </p>
           </div>
         </div>
-        
-        <div className="flex gap-2">
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                Create Section
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create New Section</DialogTitle>
-                <DialogDescription>Add a new section to the department</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={handleCreateSection} className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Section Name</Label>
-                  <Input
-                    value={formData.name}
-                    onChange={(e) => setFormData({...formData, name: e.target.value})}
-                    placeholder="A, B, C..."
-                    required
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label>Department</Label>
-                  <Select value={formData.departmentId} onValueChange={(v) => setFormData({...formData, departmentId: v})}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select department" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {departments.map(dept => (
-                        <SelectItem key={dept.id} value={dept.id}>{dept.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Year</Label>
-                    <Input
-                      type="number"
-                      value={formData.year}
-                      onChange={(e) => setFormData({...formData, year: e.target.value})}
-                      placeholder="1, 2, 3, 4"
-                      required
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label>Semester</Label>
-                    <Input
-                      type="number"
-                      value={formData.semester}
-                      onChange={(e) => setFormData({...formData, semester: e.target.value})}
-                      placeholder="1-8"
-                      required
-                    />
-                  </div>
-                </div>
+        <div className="flex flex-wrap items-center gap-3">
+          {isSuperAdmin && (
+            <div className="w-64">
+              <Label className="sr-only" htmlFor="select-college">
+                College
+              </Label>
+              <Select
+                value={collegeId?.toString() || ""}
+                onValueChange={(value) => setCollegeId(value ? parseInt(value, 10) : null)}
+              >
+                <SelectTrigger id="select-college">
+                  <SelectValue placeholder="Select college" />
+                </SelectTrigger>
+                <SelectContent>
+                  {colleges.map((college) => (
+                    <SelectItem key={college.id} value={college.id.toString()}>
+                      {college.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
-                <Button type="submit" className="w-full">Create Section</Button>
-              </form>
-            </DialogContent>
-          </Dialog>
-
-          <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline">
-                <Plus className="mr-2 h-4 w-4" />
-                Assign Faculty
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Assign Faculty to Section</DialogTitle>
-                <DialogDescription>Map faculty members to sections and subjects</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={handleAssignFaculty} className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Faculty</Label>
-                  <Select value={assignData.facultyId} onValueChange={(v) => setAssignData({...assignData, facultyId: v})}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select faculty" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {faculty.map(f => (
-                        <SelectItem key={f.id} value={f.id}>
-                          {f.full_name} ({f.email})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Section</Label>
-                  <Select value={assignData.sectionId} onValueChange={(v) => setAssignData({...assignData, sectionId: v})}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select section" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {sections.map(s => (
-                        <SelectItem key={s.id} value={s.id}>
-                          {s.departments?.name} - {s.name} (Year {s.year}, Sem {s.semester})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Subject</Label>
-                  <Input
-                    value={assignData.subject}
-                    onChange={(e) => setAssignData({...assignData, subject: e.target.value})}
-                    placeholder="Data Structures, DBMS, etc."
-                    required
-                  />
-                </div>
-
-                <Button type="submit" className="w-full">Assign Faculty</Button>
-              </form>
-            </DialogContent>
-          </Dialog>
+          <Button onClick={handleOpenCreate} disabled={!collegeId}>
+            <Plus className="mr-2 h-4 w-4" />
+            Create Section
+          </Button>
         </div>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Sections</CardTitle>
-          <CardDescription>All sections in your college</CardDescription>
+          <CardDescription>
+            {collegeId ? "All sections defined for this college" : "Select a college to view sections"}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Section</TableHead>
+                <TableHead>Name</TableHead>
                 <TableHead>Department</TableHead>
-                <TableHead>Year</TableHead>
                 <TableHead>Semester</TableHead>
-                <TableHead>Actions</TableHead>
+                <TableHead>Year</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sections.map(section => (
-                <TableRow key={section.id}>
-                  <TableCell className="font-medium">{section.name}</TableCell>
-                  <TableCell>{section.departments?.name}</TableCell>
-                  <TableCell>{section.year}</TableCell>
-                  <TableCell>{section.semester}</TableCell>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDeleteSection(section.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+              {sections.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    {loading ? "Loading sections..." : "No sections found. Create one to get started."}
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                sections.map((section) => (
+                  <TableRow key={section.id}>
+                    <TableCell className="font-medium">{section.name}</TableCell>
+                    <TableCell>{section.department_name || departmentLookup.get(section.department_id) || "—"}</TableCell>
+                    <TableCell>{section.semester_name || (section.semester_id ? semesterLookup.get(section.semester_id) : "—")}</TableCell>
+                    <TableCell>{section.year || "—"}</TableCell>
+                    <TableCell>
+                      <Badge variant={section.is_active ? "default" : "secondary"}>
+                        {section.is_active ? "Active" : "Inactive"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="space-x-2 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleOpenEdit(section)}
+                      >
+                        <Settings2 className="mr-1 h-4 w-4" />
+                        Edit
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleToggleSection(section)}
+                      >
+                        {section.is_active ? "Deactivate" : "Activate"}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Faculty Assignments</CardTitle>
-          <CardDescription>Faculty members assigned to sections</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Faculty</TableHead>
-                <TableHead>Subject</TableHead>
-                <TableHead>Section</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {assignments.map(assignment => (
-                <TableRow key={assignment.id}>
-                  <TableCell>{assignment.profiles?.full_name}</TableCell>
-                  <TableCell>{assignment.subject}</TableCell>
-                  <TableCell>
-                    {sections.find(s => s.id === assignment.section_id)?.name}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      {/* Create Section Dialog */}
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Section</DialogTitle>
+            <DialogDescription>
+              Define a new section that can be linked to subjects and attendance.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCreateSection} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="section-name">Section Name *</Label>
+              <Input
+                id="section-name"
+                value={formData.name}
+                onChange={(event) => setFormData((prev) => ({ ...prev, name: event.target.value }))}
+                placeholder="A, B, C..."
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="section-department">Department *</Label>
+              <Select
+                value={formData.departmentId}
+                onValueChange={(value) => setFormData((prev) => ({ ...prev, departmentId: value }))}
+                required
+                disabled={isHOD}
+              >
+                <SelectTrigger id="section-department">
+                  <SelectValue placeholder="Select department" />
+                </SelectTrigger>
+                <SelectContent>
+                  {departments.map((dept) => (
+                    <SelectItem key={dept.id} value={dept.id.toString()}>
+                      {dept.name}{dept.code ? ` (${dept.code})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {isHOD && (
+                <p className="text-xs text-muted-foreground">
+                  Department is automatically set to your department
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="section-semester">Semester (optional)</Label>
+              <Select
+                value={formData.semesterId || "none"}
+                onValueChange={(value) =>
+                  setFormData((prev) => ({ ...prev, semesterId: value === "none" ? "" : value }))
+                }
+              >
+                <SelectTrigger id="section-semester">
+                  <SelectValue placeholder="Select semester" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {semesters.map((sem) => (
+                    <SelectItem key={sem.id} value={sem.id.toString()}>
+                      {sem.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="section-year">Academic Year (optional)</Label>
+              <Input
+                id="section-year"
+                type="number"
+                min={1}
+                max={10}
+                value={formData.year}
+                onChange={(event) => setFormData((prev) => ({ ...prev, year: event.target.value }))}
+                placeholder="1"
+              />
+            </div>
+
+            <DialogFooter>
+              <Button type="submit" disabled={!collegeId}>
+                Create Section
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Section Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Section</DialogTitle>
+            <DialogDescription>
+              Update section details or deactivate it if it is no longer needed.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleUpdateSection} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-section-name">Section Name *</Label>
+              <Input
+                id="edit-section-name"
+                value={formData.name}
+                onChange={(event) => setFormData((prev) => ({ ...prev, name: event.target.value }))}
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-section-department">Department *</Label>
+              <Select
+                value={formData.departmentId}
+                onValueChange={(value) => setFormData((prev) => ({ ...prev, departmentId: value }))}
+                required
+                disabled={isHOD}
+              >
+                <SelectTrigger id="edit-section-department">
+                  <SelectValue placeholder="Select department" />
+                </SelectTrigger>
+                <SelectContent>
+                  {departments.map((dept) => (
+                    <SelectItem key={dept.id} value={dept.id.toString()}>
+                      {dept.name}{dept.code ? ` (${dept.code})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {isHOD && (
+                <p className="text-xs text-muted-foreground">
+                  Department cannot be changed (scoped to your department)
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-section-semester">Semester (optional)</Label>
+              <Select
+                value={formData.semesterId || "none"}
+                onValueChange={(value) =>
+                  setFormData((prev) => ({ ...prev, semesterId: value === "none" ? "" : value }))
+                }
+              >
+                <SelectTrigger id="edit-section-semester">
+                  <SelectValue placeholder="Select semester" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {semesters.map((sem) => (
+                    <SelectItem key={sem.id} value={sem.id.toString()}>
+                      {sem.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-section-year">Academic Year (optional)</Label>
+              <Input
+                id="edit-section-year"
+                type="number"
+                min={1}
+                max={10}
+                value={formData.year}
+                onChange={(event) => setFormData((prev) => ({ ...prev, year: event.target.value }))}
+                placeholder="1"
+              />
+            </div>
+
+            <DialogFooter>
+              <Button type="submit">
+                Save Changes
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

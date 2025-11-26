@@ -22,3 +22,54 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Cypress
+cypress/videos/
+cypress/screenshots/
+cypress/reports/
+cypress/downloads/
+
+# Backend Python
+backend/venv/
+backend/__pycache__/
+backend/*.pyc
+backend/*.pyo
+backend/*.pyd
+backend/.Python
+backend/*.egg-info/
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+
+# Backend Environment
+backend/.env
+backend/.env.local
+backend/.env.production
+backend/.env.development
+
+# Database
+backend/*.db
+backend/*.sqlite
+backend/*.sqlite3
+backend/elevate_edu.db
+
+# AWS
+.aws/
+*.pem
+*.key
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.development
+.env.*.local
+
+# Build outputs
+build/
+*.egg-info/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

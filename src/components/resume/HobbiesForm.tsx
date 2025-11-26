@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,9 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Trash2, Edit2, X } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
+import { resumeStorage } from "@/lib/resumeStorage";
 
 interface Hobby {
   id?: string;
@@ -25,45 +24,77 @@ export function HobbiesForm({ hobbies }: HobbiesFormProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<Hobby>();
+  const { register, handleSubmit, reset, formState: { errors }, watch } = useForm<Hobby>();
+  const formValues = watch();
+
+  // Load draft from localStorage when form opens
+  useEffect(() => {
+    if (isAdding && !editingId) {
+      const draft = resumeStorage.load<Hobby>('hobbies_form');
+      if (draft) {
+        reset(draft);
+        toast({
+          title: "Draft restored",
+          description: "Your previous form data has been restored.",
+        });
+      }
+    }
+  }, [isAdding, editingId, reset, toast]);
+
+  // Auto-save draft to localStorage as user types (debounced)
+  useEffect(() => {
+    if (!isAdding || editingId) return;
+    
+    const timer = setTimeout(() => {
+      const hasData = Object.values(formValues).some(val => 
+        val !== '' && val !== null && val !== undefined
+      );
+      if (hasData) {
+        resumeStorage.save('hobbies_form', formValues);
+      }
+    }, 1000); // Save after 1 second of no typing
+
+    return () => clearTimeout(timer);
+  }, [formValues, isAdding, editingId]);
 
   const onSubmit = async (data: Hobby) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      // Clear draft after successful save
+      resumeStorage.clear('hobbies_form');
 
+      const hobbyData: Hobby = {
+        ...data,
+        id: editingId || `hobby_${Date.now()}`,
+      };
+
+      // Save to localStorage
+      const savedHobbies = resumeStorage.load<Hobby[]>('hobbies_saved') || [];
       if (editingId) {
-        const { error } = await supabase
-          .from("hobbies")
-          .update(data)
-          .eq("id", editingId)
-          .eq("user_id", user.id);
-
-        if (error) throw error;
+        const index = savedHobbies.findIndex((h: any) => h.id === editingId);
+        if (index >= 0) {
+          savedHobbies[index] = hobbyData;
+        } else {
+          savedHobbies.push(hobbyData);
+        }
         toast({ title: "Hobby updated successfully" });
         setEditingId(null);
       } else {
-        const { error } = await supabase
-          .from("hobbies")
-          .insert({
-            user_id: user.id,
-            ...data,
-            display_order: hobbies.length,
-          });
-
-        if (error) throw error;
+        savedHobbies.push(hobbyData);
         toast({ title: "Hobby added successfully" });
       }
+      
+      resumeStorage.save('hobbies_saved', savedHobbies);
 
       reset();
       setIsAdding(false);
-      queryClient.invalidateQueries({ queryKey: ["studentHobbies"] });
+      
+      // Trigger page refresh to show updated list
+      window.dispatchEvent(new Event('resumeDataUpdated'));
     } catch (error: any) {
       toast({
         title: "Error saving hobby",
-        description: error.message,
+        description: error.message || "Please try again",
         variant: "destructive",
       });
     }
@@ -77,18 +108,16 @@ export function HobbiesForm({ hobbies }: HobbiesFormProps) {
 
   const handleDelete = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from("hobbies")
-        .delete()
-        .eq("id", id);
-
-      if (error) throw error;
+      const savedHobbies = resumeStorage.load<Hobby[]>('hobbies_saved') || [];
+      const filtered = savedHobbies.filter((h: any) => h.id !== id);
+      resumeStorage.save('hobbies_saved', filtered);
+      
       toast({ title: "Hobby deleted successfully" });
-      queryClient.invalidateQueries({ queryKey: ["studentHobbies"] });
+      window.dispatchEvent(new Event('resumeDataUpdated'));
     } catch (error: any) {
       toast({
         title: "Error deleting hobby",
-        description: error.message,
+        description: error.message || "Please try again",
         variant: "destructive",
       });
     }
@@ -97,8 +126,16 @@ export function HobbiesForm({ hobbies }: HobbiesFormProps) {
   const handleCancel = () => {
     setIsAdding(false);
     setEditingId(null);
+    // Clear draft when canceling
+    resumeStorage.clear('hobbies_form');
     reset();
   };
+
+  // Merge saved hobbies from localStorage with props
+  const savedHobbies = resumeStorage.load<Hobby[]>('hobbies_saved') || [];
+  const allHobbies = [...hobbies, ...savedHobbies.filter((h: any) => 
+    !hobbies.find((hobby: any) => hobby.id === h.id)
+  )];
 
   return (
     <Card>
@@ -120,7 +157,7 @@ export function HobbiesForm({ hobbies }: HobbiesFormProps) {
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Existing hobbies */}
-        {hobbies.map((hobby) => (
+        {allHobbies.map((hobby) => (
           <div key={hobby.id} className="p-4 border rounded-lg space-y-2">
             <div className="flex justify-between items-start">
               <div className="flex-1">
@@ -169,7 +206,7 @@ export function HobbiesForm({ hobbies }: HobbiesFormProps) {
                 <Input
                   id="hobby_name"
                   {...register("hobby_name", { required: "Hobby name is required" })}
-                  placeholder="e.g., Photography, Chess, Blogging"
+                  placeholder="e.g., Photography, Chess, Reading, Traveling, Cooking, Blogging, Music"
                 />
                 {errors.hobby_name && (
                   <p className="text-sm text-destructive">{errors.hobby_name.message}</p>
@@ -181,9 +218,10 @@ export function HobbiesForm({ hobbies }: HobbiesFormProps) {
                 <Textarea
                   id="description"
                   {...register("description")}
-                  placeholder="Brief description"
+                  placeholder="e.g., Passionate photographer with 5 years of experience, published travel blog with 10k monthly readers"
                   rows={2}
                 />
+                <p className="text-xs text-muted-foreground">Optional: Briefly describe your interest or expertise level</p>
               </div>
             </div>
 
