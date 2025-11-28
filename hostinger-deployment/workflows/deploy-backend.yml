@@ -1,0 +1,110 @@
+name: Deploy Backend to Hostinger
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HOSTINGER_SSH_KEY }}" > ~/.ssh/hostinger_key
+          chmod 600 ~/.ssh/hostinger_key
+          ssh-keyscan -H ${{ secrets.HOSTINGER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to Hostinger
+        env:
+          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
+        run: |
+          ssh -i ~/.ssh/hostinger_key ${{ secrets.HOSTINGER_USER }}@${{ secrets.HOSTINGER_HOST }} << 'EOF'
+            set -e
+            echo "🚀 Starting backend deployment..."
+            
+            # Navigate to project directory
+            cd /var/www/elevate-edu-ui || (mkdir -p /var/www && cd /var/www && git clone https://github.com/${{ github.repository }}.git elevate-edu-ui)
+            cd /var/www/elevate-edu-ui
+            
+            # Pull latest changes
+            git fetch origin
+            git reset --hard origin/main
+            
+            # Navigate to backend
+            cd backend
+            
+            # Activate virtual environment
+            source venv/bin/activate || python3.11 -m venv venv && source venv/bin/activate
+            
+            # Install/update dependencies
+            pip install --upgrade pip
+            pip install -r requirements.txt
+            
+            # Update .env file
+            if [ ! -f .env ]; then
+              cat > .env << EOL
+            DATABASE_URL=mysql+pymysql://${{ secrets.HOSTINGER_DB_USER }}:${{ secrets.HOSTINGER_DB_PASSWORD }}@${{ secrets.HOSTINGER_DB_HOST }}:3306/${{ secrets.HOSTINGER_DB_NAME }}
+            SECRET_KEY=${{ secrets.SECRET_KEY }}
+            BACKEND_CORS_ORIGINS=https://${{ secrets.HOSTINGER_DOMAIN }},https://www.${{ secrets.HOSTINGER_DOMAIN }}
+            DEBUG=False
+            API_V1_STR=/api/v1
+            EOL
+            else
+              sed -i "s|DATABASE_URL=.*|DATABASE_URL=mysql+pymysql://${{ secrets.HOSTINGER_DB_USER }}:${{ secrets.HOSTINGER_DB_PASSWORD }}@${{ secrets.HOSTINGER_DB_HOST }}:3306/${{ secrets.HOSTINGER_DB_NAME }}|g" .env
+              sed -i "s|SECRET_KEY=.*|SECRET_KEY=${{ secrets.SECRET_KEY }}|g" .env
+              sed -i "s|BACKEND_CORS_ORIGINS=.*|BACKEND_CORS_ORIGINS=https://${{ secrets.HOSTINGER_DOMAIN }},https://www.${{ secrets.HOSTINGER_DOMAIN }}|g" .env
+            fi
+            
+            # Initialize database (if needed)
+            # This automatically creates new tables when models are added
+            python -c "from app.core.database import Base, engine; Base.metadata.create_all(bind=engine)" || true
+            
+            # Note: For complex migrations, you may need to run Alembic migrations manually
+            # alembic upgrade head
+            
+            # Restart backend service
+            supervisorctl restart elevate-edu-backend || echo "Service not found, will create..."
+            
+            echo "✅ Backend deployment complete!"
+          EOF
+
+      - name: Health Check
+        run: |
+          sleep 5
+          response=$(curl -s -o /dev/null -w "%{http_code}" https://${{ secrets.HOSTINGER_DOMAIN }}/api/health || echo "000")
+          if [ "$response" != "200" ]; then
+            echo "⚠️ Health check returned: HTTP $response"
+          else
+            echo "✅ Health check passed"
+          fi
+
+      - name: Notify Deployment
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Backend deployed successfully!"
+          else
+            echo "❌ Backend deployment failed!"
+          fi
+

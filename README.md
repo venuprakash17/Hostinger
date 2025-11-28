@@ -6,7 +6,7 @@ A comprehensive educational management platform with coding practice, labs, quiz
 
 - **Frontend**: React + TypeScript + Vite
 - **Backend**: FastAPI (Python)
-- **Database**: PostgreSQL / SQLite
+- **Database**: MySQL / PostgreSQL / SQLite
 - **Code Execution**: Piston API
 
 ## Project Structure
@@ -16,7 +16,7 @@ elevate-edu-ui/
 ├── src/                    # Frontend React application
 ├── backend/                # Backend FastAPI application
 ├── public/                 # Static assets
-├── aws-deployment/         # AWS deployment scripts and configs
+├── hostinger-deployment/  # Hostinger deployment scripts and configs
 └── cypress/               # E2E tests
 ```
 
@@ -41,12 +41,17 @@ npm run dev
 
 ## Deployment
 
-See `aws-deployment/` folder for AWS deployment guides and scripts.
+See `hostinger-deployment/` folder for Hostinger deployment guides and scripts with GitHub CI/CD.
+
+## Deployment
+
+See `hostinger-deployment/` folder for complete Hostinger deployment guide with GitHub CI/CD.
 
 ## Documentation
 
-- **Deployment**: `aws-deployment/MASTER_DEPLOYMENT_GUIDE.md`
-- **API Testing**: See Postman collection in `aws-deployment/`
+- **Deployment**: `hostinger-deployment/MASTER_DEPLOYMENT_GUIDE.md`
+- **Quick Start**: `hostinger-deployment/QUICK_START.md`
+- **GitHub CI/CD**: `hostinger-deployment/GITHUB_SETUP.md`
 
 ## License
 

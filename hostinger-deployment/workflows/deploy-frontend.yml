@@ -1,0 +1,74 @@
+name: Deploy Frontend to Hostinger
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'package.json'
+      - 'vite.config.ts'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        env:
+          VITE_API_BASE_URL: https://${{ secrets.HOSTINGER_DOMAIN }}/api/v1
+        run: |
+          echo "VITE_API_BASE_URL=https://${{ secrets.HOSTINGER_DOMAIN }}/api/v1" > .env.production
+          npm run build
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HOSTINGER_SSH_KEY }}" > ~/.ssh/hostinger_key
+          chmod 600 ~/.ssh/hostinger_key
+          ssh-keyscan -H ${{ secrets.HOSTINGER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to Hostinger
+        run: |
+          # Create deployment directory
+          ssh -i ~/.ssh/hostinger_key ${{ secrets.HOSTINGER_USER }}@${{ secrets.HOSTINGER_HOST }} << 'EOF'
+            mkdir -p /var/www/elevate-edu-ui/dist
+          EOF
+          
+          # Upload files
+          scp -i ~/.ssh/hostinger_key -r dist/* ${{ secrets.HOSTINGER_USER }}@${{ secrets.HOSTINGER_HOST }}:/var/www/elevate-edu-ui/dist/
+          
+          # Copy to public_html (for shared hosting) or keep in dist (for VPS with Nginx)
+          ssh -i ~/.ssh/hostinger_key ${{ secrets.HOSTINGER_USER }}@${{ secrets.HOSTINGER_HOST }} << 'EOF'
+            # For VPS with Nginx, files stay in dist/
+            # For shared hosting, copy to public_html/
+            if [ -d "/home/$USER/public_html" ]; then
+              cp -r /var/www/elevate-edu-ui/dist/* /home/$USER/public_html/
+            fi
+            echo "✅ Frontend files deployed!"
+          EOF
+
+      - name: Notify Deployment
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Frontend deployed successfully!"
+          else
+            echo "❌ Frontend deployment failed!"
+          fi
+

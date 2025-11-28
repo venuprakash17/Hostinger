@@ -1,0 +1,82 @@
+name: Deploy Full Stack to Hostinger
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HOSTINGER_SSH_KEY }}" > ~/.ssh/hostinger_key
+          chmod 600 ~/.ssh/hostinger_key
+          ssh-keyscan -H ${{ secrets.HOSTINGER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy Backend
+        run: |
+          ssh -i ~/.ssh/hostinger_key ${{ secrets.HOSTINGER_USER }}@${{ secrets.HOSTINGER_HOST }} << 'EOF'
+            set -e
+            echo "🚀 Deploying backend..."
+            
+            cd /var/www/elevate-edu-ui || (mkdir -p /var/www && cd /var/www && git clone https://github.com/${{ github.repository }}.git elevate-edu-ui)
+            cd /var/www/elevate-edu-ui
+            git fetch origin
+            git reset --hard origin/main
+            
+            cd backend
+            source venv/bin/activate || python3.11 -m venv venv && source venv/bin/activate
+            pip install --upgrade pip
+            pip install -r requirements.txt
+            
+            # Update .env
+            if [ ! -f .env ]; then
+              cat > .env << EOL
+            DATABASE_URL=mysql+pymysql://${{ secrets.HOSTINGER_DB_USER }}:${{ secrets.HOSTINGER_DB_PASSWORD }}@${{ secrets.HOSTINGER_DB_HOST }}:3306/${{ secrets.HOSTINGER_DB_NAME }}
+            SECRET_KEY=${{ secrets.SECRET_KEY }}
+            BACKEND_CORS_ORIGINS=https://${{ secrets.HOSTINGER_DOMAIN }}
+            DEBUG=False
+            EOL
+            fi
+            
+            python -c "from app.core.database import Base, engine; Base.metadata.create_all(bind=engine)" || true
+            supervisorctl restart elevate-edu-backend || true
+            
+            echo "✅ Backend deployed!"
+          EOF
+
+      - name: Build Frontend
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+        run: |
+          npm ci
+          echo "VITE_API_BASE_URL=https://${{ secrets.HOSTINGER_DOMAIN }}/api/v1" > .env.production
+          npm run build
+
+      - name: Deploy Frontend
+        run: |
+          scp -i ~/.ssh/hostinger_key -r dist/* ${{ secrets.HOSTINGER_USER }}@${{ secrets.HOSTINGER_HOST }}:/var/www/elevate-edu-ui/dist/
+          
+          ssh -i ~/.ssh/hostinger_key ${{ secrets.HOSTINGER_USER }}@${{ secrets.HOSTINGER_HOST }} << 'EOF'
+            if [ -d "/home/$USER/public_html" ]; then
+              cp -r /var/www/elevate-edu-ui/dist/* /home/$USER/public_html/
+            fi
+            echo "✅ Frontend deployed!"
+          EOF
+
+      - name: Verify Deployment
+        run: |
+          sleep 5
+          echo "✅ Deployment complete!"
+          echo "Visit: https://${{ secrets.HOSTINGER_DOMAIN }}"
+

@@ -7,8 +7,9 @@ import os
 
 settings = get_settings()
 
-# Determine if using SQLite
+# Determine database type
 is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+is_mysql = "mysql" in settings.DATABASE_URL.lower() or "pymysql" in settings.DATABASE_URL.lower()
 
 # Create database engine
 if is_sqlite:
@@ -16,6 +17,15 @@ if is_sqlite:
     engine = create_engine(
         settings.DATABASE_URL,
         connect_args={"check_same_thread": False},  # Required for SQLite
+    )
+elif is_mysql:
+    # MySQL configuration (for Hostinger)
+    engine = create_engine(
+        settings.DATABASE_URL,
+        pool_pre_ping=True,  # Verify connections before using
+        pool_size=5,
+        max_overflow=10,
+        pool_recycle=3600,  # Recycle connections after 1 hour
     )
 else:
     # PostgreSQL configuration (for production)

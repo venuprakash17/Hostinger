@@ -20,6 +20,9 @@ python-socketio==5.11.0  # For WebSocket support
 # PostgreSQL (only needed for production/Docker)
 psycopg2-binary==2.9.10; sys_platform != "darwin"  # For Linux/Windows
 psycopg2-binary==2.9.10  # For production
+# MySQL (for Hostinger)
+pymysql==1.1.0  # MySQL connector for Hostinger
+cryptography==41.0.7  # Required for pymysql
 
 # Optional: For AI features
 # openai==1.51.0
