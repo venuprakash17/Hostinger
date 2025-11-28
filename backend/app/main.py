@@ -1,3 +1,5 @@
+print("Initial deployment successful")
+
 """FastAPI application main file"""
 from fastapi import FastAPI, Request, status, WebSocket, Depends
 from fastapi.middleware.cors import CORSMiddleware
