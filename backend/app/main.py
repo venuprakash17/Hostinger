@@ -353,3 +353,4 @@ async def health_v1():
     """Health check endpoint under API v1"""
     return {"status": "healthy", "version": settings.VERSION}
 
+# test
