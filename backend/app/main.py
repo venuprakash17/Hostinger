@@ -1,4 +1,5 @@
 print("Initial deployment successful")
+print("Initial deployment successful 22222")
 
 """FastAPI application main file"""
 from fastapi import FastAPI, Request, status, WebSocket, Depends
