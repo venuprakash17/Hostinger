@@ -14,7 +14,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Copy backend to VPS
+      # FIX: Copy only backend CONTENTS, not backend folder
+      - name: Copy backend files to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -23,6 +24,7 @@ jobs:
           source: "backend/*"
           target: "/var/www/elevate/backend"
           overwrite: true
+          strip_components: 1
 
       - name: Install dependencies & restart backend
         uses: appleboy/ssh-action@v1.0.3
@@ -31,14 +33,13 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            echo "📂 Going to backend directory"
             cd /var/www/elevate/backend
 
-            echo "🔥 Cleaning broken virtualenv if exists"
-            if [ -d "venv" ]; then
-                rm -rf venv
-            fi
+            echo "🔥 Cleaning old venv"
+            rm -rf venv
 
-            echo "📦 Creating virtual environment"
+            echo "📦 Creating new venv"
             python3 -m venv venv
 
             echo "📌 Activating venv"
@@ -47,8 +48,9 @@ jobs:
             echo "⬆ Upgrading pip"
             pip install --upgrade pip
 
-            echo "📥 Installing dependencies"
+            echo "📥 Installing dependencies from requirements.txt"
             pip install -r requirements.txt
 
-            echo "🔁 Restarting backend via supervisor"
-            sudo /usr/bin/supervisorctl restart elevate-backend
+            echo "🔁 Restarting backend service"
+            sudo /usr/bin/supervisorctl restart elevate-backend || sudo /usr/bin/supervisorctl start elevate-backend
+
