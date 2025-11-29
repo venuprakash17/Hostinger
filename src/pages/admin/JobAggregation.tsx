@@ -155,7 +155,7 @@ export default function JobAggregation() {
             }}
           />
           <Button variant="outline" onClick={() => {
-            const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+            const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://72.60.101.14:8000/api/v1';
             window.open(`${apiBaseUrl}/job-aggregation/template`, '_blank');
           }}>
             <Download className="mr-2 h-4 w-4" />
@@ -249,6 +249,7 @@ export default function JobAggregation() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Filters */}

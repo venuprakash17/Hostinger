@@ -53,7 +53,8 @@ export default function MyLabs() {
 
   const fetchUserAndLabs = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/v1/auth/me', {
+      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://72.60.101.14:8000/api/v1';
+      const response = await fetch(`${apiBaseUrl}/auth/me`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`
         }

@@ -200,7 +200,7 @@ export default function Login() {
           errorMessage.includes('Failed to connect') ||
           errorMessage.includes('ERR_NETWORK_CHANGED') ||
           errorMessage.includes('network changed')) {
-        toast.error("Backend server connection issue. Please ensure the backend is running on http://localhost:8000");
+        toast.error("Backend server connection issue. Please check your connection.");
       } else if (error.status === 401 || errorMessage.includes('Invalid email or password') || errorMessage.includes('Unauthorized')) {
         toast.error("Invalid email or password. Please check your credentials.");
       } else if (errorMessage.includes('User not found') || errorMessage.includes('No account')) {

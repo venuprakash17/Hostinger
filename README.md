@@ -39,19 +39,35 @@ npm install
 npm run dev
 ```
 
-## Deployment
+## 🚀 Deployment
 
-See `hostinger-deployment/` folder for Hostinger deployment guides and scripts with GitHub CI/CD.
+**📄 Complete Guide:** `COMPLETE_DEPLOYMENT_GUIDE.md`
 
-## Deployment
+This single comprehensive guide covers:
+- ✅ GitHub repository setup
+- ✅ What to commit
+- ✅ Hostinger VPS setup (fresh OS)
+- ✅ Docker deployment (recommended)
+- ✅ Manual deployment
+- ✅ GitHub CI/CD configuration
+- ✅ End-to-end deployment
 
-See `hostinger-deployment/` folder for complete Hostinger deployment guide with GitHub CI/CD.
+**Quick Start:** See `QUICK_START.md` for checklist
 
-## Documentation
+---
 
-- **Deployment**: `hostinger-deployment/MASTER_DEPLOYMENT_GUIDE.md`
-- **Quick Start**: `hostinger-deployment/QUICK_START.md`
-- **GitHub CI/CD**: `hostinger-deployment/GITHUB_SETUP.md`
+## 📦 Project Structure
+
+```
+elevate-edu-ui/
+├── src/                    # Frontend (React + TypeScript)
+├── backend/               # Backend (FastAPI + Python)
+├── public/                # Static assets
+├── .github/workflows/     # GitHub CI/CD workflows
+├── docker-compose.yml     # Docker deployment
+├── nginx.conf             # Nginx configuration
+└── COMPLETE_DEPLOYMENT_GUIDE.md  # ⭐ Start here!
+```
 
 ## License
 

@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     
-    # CORS
-    BACKEND_CORS_ORIGINS: str = "http://localhost:8080,http://localhost:8081,http://localhost:5173,http://127.0.0.1:8080,http://127.0.0.1:8081,http://127.0.0.1:5173"
+    # CORS - Add production domains here
+    BACKEND_CORS_ORIGINS: str = "http://localhost:8080,http://localhost:8081,http://localhost:5173,http://127.0.0.1:8080,http://127.0.0.1:8081,http://127.0.0.1:5173,http://72.60.101.14,http://72.60.101.14:80,http://72.60.101.14:8080"
     
     # Debug mode
     DEBUG: bool = True  # Set to False in production

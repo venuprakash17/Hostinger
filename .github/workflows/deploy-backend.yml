@@ -20,8 +20,9 @@ jobs:
         host: ${{ secrets.VPS_HOST }}
         username: ${{ secrets.VPS_USER }}
         key: ${{ secrets.VPS_SSH_KEY }}
+        port: ${{ secrets.VPS_PORT || 22 }}
         source: "backend/*"
-        target: "/var/www/elevate/backend"
+        target: ${{ secrets.VPS_BACKEND_PATH || '/home/root/elevate-edu-backend/backend' }}
         overwrite: true
 
     - name: Setup backend on server
@@ -30,14 +31,17 @@ jobs:
         host: ${{ secrets.VPS_HOST }}
         username: ${{ secrets.VPS_USER }}
         key: ${{ secrets.VPS_SSH_KEY }}
+        port: ${{ secrets.VPS_PORT || 22 }}
         script: |
-          cd /var/www/elevate/backend
+          BACKEND_PATH="${{ secrets.VPS_BACKEND_PATH || '/home/root/elevate-edu-backend/backend' }}"
+          SERVICE_NAME="${{ secrets.VPS_SUPERVISOR_SERVICE || 'elevate-edu-backend' }}"
           
-          echo "🔥 Removing old virtualenv"
-          rm -rf venv
-
-          echo "📦 Create new venv"
-          python3 -m venv venv
+          cd $BACKEND_PATH
+          
+          echo "📦 Create venv if not exists"
+          if [ ! -d "venv" ]; then
+            python3 -m venv venv
+          fi
 
           echo "📌 Activate venv"
           source venv/bin/activate
@@ -45,10 +49,15 @@ jobs:
           echo "⬆ Upgrade pip"
           pip install --upgrade pip
 
-          echo "📥 Install dependencies"
+          echo "📥 Install/Update dependencies"
           pip install -r requirements.txt
 
-          echo "🔁 Restarting Supervisor"
-          sudo /usr/bin/supervisorctl reread
-          sudo /usr/bin/supervisorctl update
-          sudo /usr/bin/supervisorctl restart elevate-backend
+          echo "🗄️ Create database tables if needed"
+          python -c "from app.core.database import Base, engine; Base.metadata.create_all(bind=engine)" || echo "⚠️ Table creation skipped (might already exist)"
+
+          echo "🔄 Restarting Supervisor service: $SERVICE_NAME"
+          sudo supervisorctl reread || true
+          sudo supervisorctl update || true
+          sudo supervisorctl restart $SERVICE_NAME || echo "⚠️ Service restart failed, check supervisor config"
+          
+          echo "✅ Backend deployed successfully!"

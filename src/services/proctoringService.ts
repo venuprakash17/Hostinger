@@ -426,7 +426,8 @@ export class ProctoringService {
       return;
     }
 
-    const wsUrl = `ws://localhost:8000/ws/coding-labs/${this.config.labId}?token=${token}`;
+    const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL || (import.meta.env.VITE_API_BASE_URL || 'http://72.60.101.14:8000/api/v1').replace(/^https?:\/\//, 'ws://').replace(/\/api\/v1$/, '');
+    const wsUrl = `${wsBaseUrl}/ws/coding-labs/${this.config.labId}?token=${token}`;
     
     try {
       const ws = new WebSocket(wsUrl);

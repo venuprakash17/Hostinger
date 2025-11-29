@@ -230,7 +230,7 @@ export default function Certificates() {
   };
 
   const downloadFile = (cert: Certificate) => {
-    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://72.60.101.14:8000/api/v1';
     window.open(`${apiBaseUrl}${cert.file_url}`, '_blank');
   };
 

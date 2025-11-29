@@ -3,7 +3,7 @@
  * Replaces Appwrite client
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://72.60.101.14:8000/api/v1';
 
 // Token management
 const getToken = (): string | null => {
@@ -71,7 +71,7 @@ class APIClient {
       // Handle network errors - response.status === 0 means no response received
       if (response.status === 0) {
         console.error('[API Client] No response received (status 0) - connection failed');
-        throw new Error('Failed to connect to server. Please ensure the backend is running on http://localhost:8000');
+        throw new Error('Failed to connect to server. Please check your connection.');
       }
 
       // Handle token refresh on 401
@@ -151,7 +151,7 @@ class APIClient {
       // Handle abort (timeout)
       if (error.name === 'AbortError') {
         console.error('Request timeout - backend may not be responding');
-        throw new Error('Request timeout - please check if backend server is running on http://localhost:8000');
+        throw new Error('Request timeout - please check your connection.');
       }
       
       // Handle network errors - only catch actual fetch/network failures, not HTTP errors
@@ -176,7 +176,7 @@ class APIClient {
           errorMessage: error.message,
           url
         });
-        throw new Error('Failed to connect to server. Please ensure the backend is running on http://localhost:8000');
+        throw new Error('Failed to connect to server. Please check your connection.');
       }
       
       // Handle CORS errors specifically
@@ -325,7 +325,7 @@ class APIClient {
       
       if (error.name === 'AbortError') {
         console.error('[API Client] Request was aborted (timeout)');
-        throw new Error('Login request timed out. Please check if backend is running on http://localhost:8000');
+        throw new Error('Login request timed out. Please check your connection.');
       }
       
       if (error.message?.includes('Failed to fetch') || 
@@ -334,7 +334,7 @@ class APIClient {
           error.message?.includes('NetworkError') ||
           error.message?.includes('Network request failed')) {
         console.error('[API Client] Network error detected');
-        throw new Error('Failed to connect to server. Please ensure the backend is running on http://localhost:8000');
+        throw new Error('Failed to connect to server. Please check your connection.');
       }
       
       throw error;

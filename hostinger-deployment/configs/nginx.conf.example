@@ -24,11 +24,21 @@ server {
         proxy_set_header Connection "upgrade";
     }
 
-    # Frontend
+    # Root directory
+    root /var/www/elevate-edu-ui/dist;
+    index index.html;
+
+    # Static assets (CSS, JS, images, etc.)
+    location /assets/ {
+        alias /var/www/elevate-edu-ui/dist/assets/;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+
+    # Frontend (SPA routing)
     location / {
-        root /var/www/elevate-edu-ui/dist;
         try_files $uri $uri/ /index.html;
-        index index.html;
     }
 
     # Health check

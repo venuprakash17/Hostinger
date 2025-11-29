@@ -26,6 +26,9 @@ jobs:
         run: npm install
 
       - name: Build project
+        env:
+          VITE_API_BASE_URL: http://72.60.101.14:8000/api/v1
+          VITE_WS_BASE_URL: ws://72.60.101.14:8000
         run: npm run build
 
       - name: Upload dist to VPS
@@ -34,15 +37,22 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
           source: "dist/*"
-          target: "/var/www/elevate/frontend"
+          target: ${{ secrets.VPS_FRONTEND_PATH || '/var/www/elevate-edu-ui/dist' }}
           strip_components: 1
 
-      - name: Reload Nginx
+      - name: Fix permissions and reload Nginx
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
           script: |
+            FRONTEND_PATH="${{ secrets.VPS_FRONTEND_PATH || '/var/www/elevate-edu-ui/dist' }}"
+            sudo chown -R www-data:www-data $FRONTEND_PATH/
+            sudo chmod -R 755 $FRONTEND_PATH/
+            sudo find $FRONTEND_PATH -type f -exec chmod 644 {} \;
             sudo systemctl reload nginx
+            echo "✅ Frontend deployed successfully!"

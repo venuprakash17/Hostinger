@@ -1,0 +1,83 @@
+name: Deploy with Docker to Hostinger VPS
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "src/**"
+      - "backend/**"
+      - "public/**"
+      - "docker-compose.yml"
+      - "nginx.conf"
+      - "vite.config.ts"
+      - "package.json"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # Build Frontend
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build frontend
+        env:
+          VITE_API_BASE_URL: http://72.60.101.14:8000/api/v1
+          VITE_WS_BASE_URL: ws://72.60.101.14:8000
+        run: npm run build
+
+      # Upload files to VPS
+      - name: Upload files to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: |
+            dist/
+            backend/
+            docker-compose.yml
+            nginx.conf
+            .env.production
+          target: ${{ secrets.VPS_DEPLOY_PATH || '/root/elevate-edu' }}
+
+      # Deploy with Docker
+      - name: Deploy with Docker Compose
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            DEPLOY_PATH="${{ secrets.VPS_DEPLOY_PATH || '/root/elevate-edu' }}"
+            cd $DEPLOY_PATH
+            
+            echo "🐳 Stopping existing containers..."
+            docker-compose down || true
+            
+            echo "🔨 Building and starting containers..."
+            docker-compose up -d --build
+            
+            echo "⏳ Waiting for services to start..."
+            sleep 10
+            
+            echo "📊 Checking container status..."
+            docker-compose ps
+            
+            echo "✅ Deployment complete!"
+            
+            # Show logs
+            echo "📋 Recent logs:"
+            docker-compose logs --tail=20
+

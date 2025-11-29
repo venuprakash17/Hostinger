@@ -10,6 +10,7 @@ settings = get_settings()
 # Determine database type
 is_sqlite = settings.DATABASE_URL.startswith("sqlite")
 is_mysql = "mysql" in settings.DATABASE_URL.lower() or "pymysql" in settings.DATABASE_URL.lower()
+is_postgresql = "postgresql" in settings.DATABASE_URL.lower() or "postgres" in settings.DATABASE_URL.lower()
 
 # Create database engine
 if is_sqlite:
@@ -27,11 +28,20 @@ elif is_mysql:
         max_overflow=10,
         pool_recycle=3600,  # Recycle connections after 1 hour
     )
-else:
+elif is_postgresql:
     # PostgreSQL configuration (for production)
     engine = create_engine(
         settings.DATABASE_URL,
         pool_pre_ping=True,  # Verify connections before using
+        pool_size=5,
+        max_overflow=10,
+        pool_recycle=3600,  # Recycle connections after 1 hour
+    )
+else:
+    # Default to PostgreSQL if unclear
+    engine = create_engine(
+        settings.DATABASE_URL,
+        pool_pre_ping=True,
         pool_size=5,
         max_overflow=10,
     )

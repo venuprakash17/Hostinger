@@ -249,12 +249,18 @@ async def list_problems(
     - Super Admin: See all problems
     - Filters: difficulty, year, language, tags, complexity, scope_type, solved status, search
     """
-    from app.models.user import UserRole, RoleEnum
-    
-    # Check if user is super admin
-    user_roles = db.query(UserRole).filter(UserRole.user_id == current_user.id).all()
-    role_names = [role.role for role in user_roles]
-    is_super_admin = RoleEnum.SUPER_ADMIN in role_names
+    try:
+        from app.models.user import UserRole, RoleEnum
+        
+        # Check if user is super admin
+        user_roles = db.query(UserRole).filter(UserRole.user_id == current_user.id).all()
+        role_names = [role.role for role in user_roles]
+        is_super_admin = RoleEnum.SUPER_ADMIN in role_names
+    except Exception as e:
+        # If there's an error checking roles, assume not super admin
+        import logging
+        logging.error(f"Error checking user roles: {e}")
+        is_super_admin = False
     
     query = db.query(CodingProblem)
     
@@ -389,49 +395,65 @@ async def list_problems(
     
     # Convert to response format
     result = []
-    for problem in problems:
-        # Convert year to integer if it's a string (handle old data format)
-        year_value = problem.year
-        if isinstance(year_value, str):
-            year_value = parse_year_to_int(year_value) or 1
-        elif year_value is None:
-            year_value = 1
+    try:
+        for problem in problems:
+            try:
+                # Convert year to integer if it's a string (handle old data format)
+                year_value = problem.year
+                if isinstance(year_value, str):
+                    year_value = parse_year_to_int(year_value) or 1
+                elif year_value is None:
+                    year_value = 1
+                
+                result.append(CodingProblemResponse(
+                    id=problem.id,
+                    title=problem.title or "",
+                    description=problem.description or "",
+                    input_format=problem.input_format,
+                    output_format=problem.output_format,
+                    constraints=problem.constraints,
+                    sample_input=problem.sample_input,
+                    sample_output=problem.sample_output,
+                    difficulty=problem.difficulty,
+                    tags=problem.tags or [],
+                    year=year_value,
+                    allowed_languages=problem.allowed_languages or [],
+                    restricted_languages=problem.restricted_languages or [],
+                    recommended_languages=problem.recommended_languages or [],
+                    starter_code_python=problem.starter_code_python,
+                    starter_code_c=problem.starter_code_c,
+                    starter_code_cpp=problem.starter_code_cpp,
+                    starter_code_java=problem.starter_code_java,
+                    starter_code_javascript=problem.starter_code_javascript,
+                    time_limit=problem.time_limit or 5,
+                    memory_limit=problem.memory_limit or 256,
+                    test_cases=problem.test_cases or [],
+                    is_active=problem.is_active if hasattr(problem, 'is_active') else True,
+                    created_by=problem.created_by if hasattr(problem, 'created_by') else None,
+                    created_at=problem.created_at if hasattr(problem, 'created_at') else None,
+                    updated_at=problem.updated_at if hasattr(problem, 'updated_at') else None,
+                    scope_type=getattr(problem, 'scope_type', None) or "svnapro",
+                    college_id=getattr(problem, 'college_id', None),
+                    department=getattr(problem, 'department', None),
+                    section_id=getattr(problem, 'section_id', None),
+                    problem_code=getattr(problem, 'problem_code', None)  # Handle missing column gracefully
+                ))
+            except Exception as e:
+                # Skip problematic records and log error
+                import logging
+                logging.error(f"Error processing problem {getattr(problem, 'id', 'unknown')}: {e}")
+                continue
         
-        result.append(CodingProblemResponse(
-            id=problem.id,
-            title=problem.title,
-            description=problem.description,
-            input_format=problem.input_format,
-            output_format=problem.output_format,
-            constraints=problem.constraints,
-            sample_input=problem.sample_input,
-            sample_output=problem.sample_output,
-            difficulty=problem.difficulty,
-            tags=problem.tags or [],
-            year=year_value,
-            allowed_languages=problem.allowed_languages or [],
-            restricted_languages=problem.restricted_languages or [],
-            recommended_languages=problem.recommended_languages or [],
-            starter_code_python=problem.starter_code_python,
-            starter_code_c=problem.starter_code_c,
-            starter_code_cpp=problem.starter_code_cpp,
-            starter_code_java=problem.starter_code_java,
-            starter_code_javascript=problem.starter_code_javascript,
-            time_limit=problem.time_limit,
-            memory_limit=problem.memory_limit,
-            test_cases=problem.test_cases or [],
-            is_active=problem.is_active,
-            created_by=problem.created_by,
-            created_at=problem.created_at,
-            updated_at=problem.updated_at,
-            scope_type=problem.scope_type or "svnapro",
-            college_id=problem.college_id,
-            department=problem.department,
-            section_id=problem.section_id,
-            problem_code=getattr(problem, 'problem_code', None)  # Handle missing column gracefully
-        ))
-    
-    return result
+        return result
+    except Exception as e:
+        import logging
+        import traceback
+        logging.error(f"Error in list_problems: {e}")
+        logging.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching coding problems: {str(e)}"
+        )
 
 
 def get_current_content_creator(

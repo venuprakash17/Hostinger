@@ -752,7 +752,7 @@ export default function ManageGlobalContent() {
             accept=".json,.xlsx,.csv"
             label="Bulk Upload Quizzes"
             description="Upload quizzes via Excel, CSV, or JSON"
-            templateUrl="/bulk-upload/template/quizzes"
+            templateUrl="/bulk-upload/templates/quiz"
             templateFileName="quiz_upload_template.json"
             onSuccess={() => {
               fetchQuizzes();

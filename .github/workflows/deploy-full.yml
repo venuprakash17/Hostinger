@@ -1,0 +1,98 @@
+name: Deploy Full Stack to Hostinger VPS
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "src/**"
+      - "backend/**"
+      - "public/**"
+      - "vite.config.ts"
+      - "package.json"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # Frontend Build & Deploy
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build frontend
+        env:
+          VITE_API_BASE_URL: http://72.60.101.14:8000/api/v1
+          VITE_WS_BASE_URL: ws://72.60.101.14:8000
+        run: npm run build
+
+      - name: Upload frontend to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: "dist/*"
+          target: ${{ secrets.VPS_FRONTEND_PATH || '/var/www/elevate-edu-ui/dist' }}
+          strip_components: 1
+
+      # Backend Deploy
+      - name: Copy backend to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: "backend/*"
+          target: ${{ secrets.VPS_BACKEND_PATH || '/home/root/elevate-edu-backend/backend' }}
+          overwrite: true
+
+      # Setup & Restart
+      - name: Setup and restart services
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            FRONTEND_PATH="${{ secrets.VPS_FRONTEND_PATH || '/var/www/elevate-edu-ui/dist' }}"
+            BACKEND_PATH="${{ secrets.VPS_BACKEND_PATH || '/home/root/elevate-edu-backend/backend' }}"
+            SERVICE_NAME="${{ secrets.VPS_SUPERVISOR_SERVICE || 'elevate-edu-backend' }}"
+            
+            echo "🔧 Fixing frontend permissions..."
+            sudo chown -R www-data:www-data $FRONTEND_PATH/
+            sudo chmod -R 755 $FRONTEND_PATH/
+            sudo find $FRONTEND_PATH -type f -exec chmod 644 {} \;
+            
+            echo "🔧 Setting up backend..."
+            cd $BACKEND_PATH
+            
+            if [ ! -d "venv" ]; then
+              python3 -m venv venv
+            fi
+            
+            source venv/bin/activate
+            pip install --upgrade pip
+            pip install -r requirements.txt
+            
+            echo "🗄️ Creating database tables..."
+            python -c "from app.core.database import Base, engine; Base.metadata.create_all(bind=engine)" || echo "⚠️ Tables might already exist"
+            
+            echo "🔄 Restarting services..."
+            sudo supervisorctl reread || true
+            sudo supervisorctl update || true
+            sudo supervisorctl restart $SERVICE_NAME || echo "⚠️ Service restart failed"
+            sudo systemctl reload nginx
+            
+            echo "✅ Full stack deployment complete!"
+

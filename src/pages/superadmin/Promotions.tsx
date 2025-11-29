@@ -21,7 +21,7 @@ export default function Promotions() {
     try {
       setLoading(true);
       const params = collegeId ? `?college_id=${collegeId}` : "";
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'}/promotion/all${params}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://72.60.101.14:8000/api/v1'}/promotion/all${params}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
@@ -69,7 +69,7 @@ export default function Promotions() {
     try {
       setLoading(true);
       const params = collegeId ? `?college_id=${collegeId}` : "";
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'}/promotion/year/${selectedYear}${params}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://72.60.101.14:8000/api/v1'}/promotion/year/${selectedYear}${params}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`,

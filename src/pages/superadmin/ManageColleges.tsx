@@ -422,9 +422,22 @@ export default function ManageColleges() {
             // Department information (from main response or profile)
             department: userData?.department || profile?.department || s.department || null,
             department_id: userData?.department_id || profile?.department_id || s.department_id || null,
-            // Handled years and sections (from profile)
-            handled_years: userData?.handled_years || profile?.handled_years || s.handled_years || null,
-            handled_sections: userData?.handled_sections || profile?.handled_sections || s.handled_sections || null,
+            // Handled years and sections (from profile) - ensure they're strings or arrays
+            handled_years: (() => {
+              const value = userData?.handled_years || profile?.handled_years || s.handled_years;
+              if (!value) return null;
+              if (Array.isArray(value)) return value;
+              if (typeof value === 'string') return value;
+              // If it's something else (object, number, etc.), convert to string or return null
+              return null;
+            })(),
+            handled_sections: (() => {
+              const value = userData?.handled_sections || profile?.handled_sections || s.handled_sections;
+              if (!value) return null;
+              if (Array.isArray(value)) return value;
+              if (typeof value === 'string') return value;
+              return null;
+            })(),
             // Other profile fields that might be missing
             full_name: userData?.full_name || profile?.full_name || s.full_name || null,
             staff_id: userData?.staff_id || profile?.staff_id || s.staff_id || null,
@@ -836,7 +849,7 @@ export default function ManageColleges() {
       });
       const errorMessage = error.message || 'Failed to delete students';
       if (errorMessage.includes('Failed to connect') || errorMessage.includes('network') || errorMessage.includes('timeout')) {
-        toast.error('Failed to connect to server. Please ensure the backend is running on http://localhost:8000');
+        toast.error('Failed to connect to server. Please check your connection.');
       } else if (errorMessage.includes('Authentication') || errorMessage.includes('Not authenticated')) {
         toast.error('Authentication required. Please log in again.');
     } else {
@@ -902,7 +915,7 @@ export default function ManageColleges() {
       console.error('Error blocking year:', error);
       const errorMessage = error.message || 'Failed to block users';
       if (errorMessage.includes('Failed to connect') || errorMessage.includes('network') || errorMessage.includes('timeout')) {
-        toast.error('Failed to connect to server. Please ensure the backend is running on http://localhost:8000');
+        toast.error('Failed to connect to server. Please check your connection.');
       } else {
         toast.error(errorMessage);
       }
@@ -933,7 +946,7 @@ export default function ManageColleges() {
       console.error('Error blocking college:', error);
       const errorMessage = error.message || 'Failed to block users';
       if (errorMessage.includes('Failed to connect') || errorMessage.includes('network') || errorMessage.includes('timeout')) {
-        toast.error('Failed to connect to server. Please ensure the backend is running on http://localhost:8000');
+        toast.error('Failed to connect to server. Please check your connection.');
       } else {
         toast.error(errorMessage);
       }
@@ -1485,14 +1498,19 @@ export default function ManageColleges() {
                           <TableCell>
                             {member.handled_years ? (
                               <div className="flex flex-wrap gap-1">
-                                {(Array.isArray(member.handled_years) 
-                                  ? member.handled_years 
-                                  : typeof member.handled_years === 'string' 
-                                    ? member.handled_years.split(',').map((y: string) => y.trim()).filter(Boolean)
-                                    : []
-                                ).map((y: string, idx: number) => (
+                                {(() => {
+                                  // Safely handle handled_years - could be string, array, or other types
+                                  if (Array.isArray(member.handled_years)) {
+                                    return member.handled_years;
+                                  }
+                                  if (typeof member.handled_years === 'string' && member.handled_years.trim()) {
+                                    return member.handled_years.split(',').map((y: string) => y.trim()).filter(Boolean);
+                                  }
+                                  // If it's not a string or array, return empty array
+                                  return [];
+                                })().map((y: string, idx: number) => (
                                   <Badge key={idx} variant="secondary" className="text-xs">
-                                    {y}
+                                    {String(y)}
                                   </Badge>
                                 ))}
                               </div>
