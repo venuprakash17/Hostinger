@@ -27,11 +27,11 @@ describe('Bulk Upload Functionality', () => {
     beforeEach(() => {
       // Login as super admin
       cy.visit('/login');
-      cy.contains('Faculty / Admin').click();
-      cy.get('input[type="email"]').type('superadmin@elevate.edu');
-      cy.get('input[type="password"]').type('SuperAdmin@123');
+      cy.get('input[name="email"]', { timeout: 10000 }).should('be.visible').type('admin@elevate.edu');
+      cy.get('input[name="password"]').type('Admin123!');
+      cy.get('select[name="role"]').select('staff');
       cy.get('button[type="submit"]').click();
-      cy.url().should('include', '/superadmin/dashboard', { timeout: 10000 });
+      cy.url({ timeout: 10000 }).should('include', '/superadmin');
     });
 
     describe('Student Bulk Upload', () => {
@@ -131,9 +131,9 @@ describe('Bulk Upload Functionality', () => {
     beforeEach(() => {
       // Login as college admin (assuming test admin exists)
       cy.visit('/login');
-      cy.contains('Faculty / Admin').click();
-      cy.get('input[type="email"]').type('admin@testcollege.edu');
-      cy.get('input[type="password"]').type('Admin123');
+      cy.get('select[name="role"]').select('staff');
+      cy.get('input[name="email"]', { timeout: 10000 }).should('be.visible').type('admin@testcollege.edu');
+      cy.get('input[name="password"]').type('Admin123');
       cy.get('button[type="submit"]').click();
       cy.url().should('include', '/dashboard', { timeout: 10000 });
     });
@@ -167,11 +167,11 @@ describe('Bulk Upload Functionality', () => {
   describe('Upload Error Handling', () => {
     beforeEach(() => {
       cy.visit('/login');
-      cy.contains('Faculty / Admin').click();
-      cy.get('input[type="email"]').type('superadmin@elevate.edu');
-      cy.get('input[type="password"]').type('SuperAdmin@123');
+      cy.get('select[name="role"]').select('staff');
+      cy.get('input[name="email"]', { timeout: 10000 }).should('be.visible').type('admin@elevate.edu');
+      cy.get('input[name="password"]').type('Admin123!');
       cy.get('button[type="submit"]').click();
-      cy.url().should('include', '/superadmin/dashboard', { timeout: 10000 });
+      cy.url({ timeout: 10000 }).should('include', '/superadmin', { timeout: 10000 });
     });
 
     it('should handle file size validation', () => {
@@ -247,11 +247,11 @@ describe('Bulk Upload Functionality', () => {
   describe('Upload Success and Error Display', () => {
     beforeEach(() => {
       cy.visit('/login');
-      cy.contains('Faculty / Admin').click();
-      cy.get('input[type="email"]').type('superadmin@elevate.edu');
-      cy.get('input[type="password"]').type('SuperAdmin@123');
+      cy.get('select[name="role"]').select('staff');
+      cy.get('input[name="email"]', { timeout: 10000 }).should('be.visible').type('admin@elevate.edu');
+      cy.get('input[name="password"]').type('Admin123!');
       cy.get('button[type="submit"]').click();
-      cy.url().should('include', '/superadmin/dashboard', { timeout: 10000 });
+      cy.url({ timeout: 10000 }).should('include', '/superadmin', { timeout: 10000 });
     });
 
     it('should display success count after upload', () => {
@@ -332,11 +332,11 @@ describe('Bulk Upload Functionality', () => {
   describe('Responsive Design', () => {
     beforeEach(() => {
       cy.visit('/login');
-      cy.contains('Faculty / Admin').click();
-      cy.get('input[type="email"]').type('superadmin@elevate.edu');
-      cy.get('input[type="password"]').type('SuperAdmin@123');
+      cy.get('select[name="role"]').select('staff');
+      cy.get('input[name="email"]', { timeout: 10000 }).should('be.visible').type('admin@elevate.edu');
+      cy.get('input[name="password"]').type('Admin123!');
       cy.get('button[type="submit"]').click();
-      cy.url().should('include', '/superadmin/dashboard', { timeout: 10000 });
+      cy.url({ timeout: 10000 }).should('include', '/superadmin', { timeout: 10000 });
     });
 
     it('should be responsive on mobile viewport', () => {
@@ -362,11 +362,11 @@ describe('Bulk Upload Functionality', () => {
   describe('Template Download Functionality', () => {
     beforeEach(() => {
       cy.visit('/login');
-      cy.contains('Faculty / Admin').click();
-      cy.get('input[type="email"]').type('superadmin@elevate.edu');
-      cy.get('input[type="password"]').type('SuperAdmin@123');
+      cy.get('select[name="role"]').select('staff');
+      cy.get('input[name="email"]', { timeout: 10000 }).should('be.visible').type('admin@elevate.edu');
+      cy.get('input[name="password"]').type('Admin123!');
       cy.get('button[type="submit"]').click();
-      cy.url().should('include', '/superadmin/dashboard', { timeout: 10000 });
+      cy.url({ timeout: 10000 }).should('include', '/superadmin', { timeout: 10000 });
     });
 
     it('should download student template with correct format', () => {

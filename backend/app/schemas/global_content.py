@@ -6,11 +6,17 @@ from datetime import datetime
 
 class QuestionSchema(BaseModel):
     question: str
-    option_a: str
-    option_b: str
-    option_c: str
-    option_d: str
-    correct_answer: str = Field(..., pattern="^[ABCD]$")
+    question_type: str = Field(default="mcq", pattern="^(mcq|fill_blank|true_false)$")  # MCQ, Fill in the blank, True/False
+    # MCQ fields (required for MCQ, optional for others)
+    option_a: Optional[str] = None
+    option_b: Optional[str] = None
+    option_c: Optional[str] = None
+    option_d: Optional[str] = None
+    correct_answer: Optional[str] = Field(None, pattern="^[ABCD]$")  # For MCQ and True/False
+    # Fill in the blank / Short answer fields
+    correct_answer_text: Optional[str] = None  # For fill_blank
+    # True/False fields
+    is_true: Optional[bool] = None  # For true_false type
     marks: int = 1
     timer_seconds: Optional[int] = None  # Timer for this specific question (in seconds)
 
@@ -19,7 +25,7 @@ class QuizBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     subject: Optional[str] = Field(None, max_length=100)
-    duration_minutes: int = Field(default=30, ge=1)
+    duration_minutes: int = Field(default=30, ge=0)  # 0 means no timer
     total_marks: int = Field(default=100, ge=1)
     questions: List[QuestionSchema] = Field(default_factory=list)
     is_active: bool = True
@@ -46,7 +52,7 @@ class QuizUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
     subject: Optional[str] = Field(None, max_length=100)
-    duration_minutes: Optional[int] = Field(None, ge=1)
+    duration_minutes: Optional[int] = Field(None, ge=0)  # 0 means no timer
     total_marks: Optional[int] = Field(None, ge=1)
     questions: Optional[List[QuestionSchema]] = None
     is_active: Optional[bool] = None
@@ -71,6 +77,41 @@ class QuizResponse(QuizBase):
     updated_at: Optional[datetime] = None
     college_id: Optional[int] = None
     section_id: Optional[int] = None
+    
+    class Config:
+        from_attributes = True
+
+
+# Quiz Attempt Schemas
+class QuizAnswerSchema(BaseModel):
+    question_index: int
+    question_type: str
+    answer: Optional[Any] = None  # Can be string, array, boolean, etc.
+    time_spent_seconds: Optional[int] = None
+
+
+class QuizAttemptCreate(BaseModel):
+    quiz_id: int
+
+
+class QuizAttemptUpdate(BaseModel):
+    answers: Optional[List[QuizAnswerSchema]] = None
+
+
+class QuizAttemptResponse(BaseModel):
+    id: int
+    quiz_id: int
+    user_id: int
+    started_at: datetime
+    submitted_at: Optional[datetime] = None
+    auto_submitted_at: Optional[datetime] = None
+    is_submitted: bool
+    is_auto_submitted: bool
+    is_graded: bool
+    total_score: float
+    max_score: Optional[float] = None
+    percentage: float
+    answers: Optional[List[Dict[str, Any]]] = None
     
     class Config:
         from_attributes = True

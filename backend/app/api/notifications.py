@@ -227,7 +227,8 @@ async def list_notifications(
         query = query.filter(Notification.is_active == is_active)
     
     total = query.count()
-    notifications = query.order_by(Notification.created_at.desc()).offset(skip).limit(limit).all()
+    from app.core.db_utils import safe_list_query
+    notifications = safe_list_query(db, query.order_by(Notification.created_at.desc()).offset(skip).limit(limit))
     
     # Get recipient counts for each notification
     notifications_with_counts = []

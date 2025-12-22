@@ -1,0 +1,83 @@
+# Docker Compose for Local Development (Matches VPS Production)
+# This mirrors the exact setup on your VPS Hostinger server
+# Same structure as docker-compose.yml but with local development settings
+
+services:
+  # PostgreSQL Database (Same as Production)
+  postgres:
+    image: postgres:15-alpine
+    container_name: elevate_edu_db_local
+    environment:
+      POSTGRES_USER: elevate_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password_123}
+      POSTGRES_DB: elevate_edu
+    volumes:
+      - postgres_data_local:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elevate_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - elevate_network_local
+    restart: unless-stopped
+
+  # FastAPI Backend (Same as Production, with hot-reload for development)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: elevate_edu_api_local
+    environment:
+      DATABASE_URL: postgresql://elevate_user:${POSTGRES_PASSWORD:-dev_password_123}@postgres:5432/elevate_edu
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:8080,http://localhost:5173,http://127.0.0.1:8080,http://127.0.0.1:5173}
+      DEBUG: "true"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ./backend/uploads:/app/uploads
+      - ./backend/data:/app/data
+    networks:
+      - elevate_network_local
+    restart: unless-stopped
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        sleep 5 &&
+        echo 'Creating database tables...' &&
+        python -c 'from app.core.database import Base, engine; Base.metadata.create_all(bind=engine)' &&
+        echo 'Starting backend server...' &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      "
+
+  # Nginx (Frontend + Reverse Proxy) - Same as Production
+  # Using port 8080 locally to avoid conflicts with system services
+  nginx:
+    image: nginx:alpine
+    container_name: elevate_edu_nginx_local
+    ports:
+      - "8080:80"
+    volumes:
+      - ./dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+    networks:
+      - elevate_network_local
+    restart: unless-stopped
+
+volumes:
+  postgres_data_local:
+    driver: local
+
+networks:
+  elevate_network_local:
+    driver: bridge
+

@@ -189,44 +189,58 @@ async def list_jobs(
             )
         )
     
-    # Get user's profile if logged in for eligibility filtering
+    # IMPORTANT: All jobs are accessible to all students by default
+    # Filter by eligibility criteria only (not by college_id)
     user_profile = None
     if current_user:
-        user_profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
+        try:
+            user_profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
+        except Exception as e:
+            # If profile query fails, continue without profile
+            user_profile = None
         
         # Check if user is admin or super admin (they see all jobs)
-        user_roles = db.query(UserRole).filter(UserRole.user_id == current_user.id).all()
-        role_names = [role.role for role in user_roles]
+        try:
+            user_roles = db.query(UserRole).filter(UserRole.user_id == current_user.id).all()
+            role_names = [role.role for role in user_roles]
+        except Exception as e:
+            # If roles query fails, treat as regular user
+            role_names = []
         
         if RoleEnum.ADMIN in role_names or RoleEnum.SUPER_ADMIN in role_names:
-            # Admins see all jobs
-            pass
+            # Admins see all jobs - no filtering needed
+            jobs = query.order_by(Job.posted_date.desc()).offset(skip).limit(limit).all()
+            return jobs
         else:
-            # Students - filter by eligibility only (not by college)
-            eligible_jobs = []
+            # Students - filter by eligibility only (NOT by college_id - all jobs are global)
+            # Get all jobs first, then filter by eligibility
             all_jobs = query.all()
+            eligible_jobs = []
             
             for job in all_jobs:
                 is_eligible = False
                 
+                # All students can see jobs with eligibility_type = "all_students"
                 if job.eligibility_type == "all_students":
                     is_eligible = True
                 elif job.eligibility_type == "branch" and user_profile:
+                    # Check if user's department matches eligible branches
                     if job.eligible_branches and user_profile.department:
-                        # Check if user's department/branch is in eligible branches
                         is_eligible = user_profile.department in job.eligible_branches
                 elif job.eligibility_type == "specific_students":
+                    # Check if user ID is in eligible_user_ids
                     if job.eligible_user_ids and current_user.id in job.eligible_user_ids:
                         is_eligible = True
                 
                 if is_eligible:
                     eligible_jobs.append(job)
             
-            # Return only eligible jobs for students
+            # Return only eligible jobs for students (sorted by posted_date)
+            eligible_jobs.sort(key=lambda j: j.posted_date, reverse=True)
             return eligible_jobs[skip:skip+limit]
     
-    # For non-logged-in users or admins, return all matching jobs
-    jobs = query.order_by(Job.posted_date.desc()).offset(skip).limit(limit).all()
+    # For non-logged-in users, return all active jobs
+    jobs = query.filter(Job.is_active == True).order_by(Job.posted_date.desc()).offset(skip).limit(limit).all()
     return jobs
 
 
@@ -249,7 +263,7 @@ async def download_job_template(
     headers = [
         "job_id", "title", "company", "role", "description", "location", "ctc",
         "job_type", "eligibility_type", "eligible_branches", "eligible_user_ids",
-        "requirements", "rounds", "deadline", "is_active"
+        "requirements", "rounds", "deadline", "apply_link", "is_active"
     ]
     ws.append(headers)
     
@@ -290,6 +304,7 @@ async def download_job_template(
             "Bachelor's degree in Computer Science;2-5 years experience;Strong problem-solving skills",
             "Online Test;Technical Interview;HR Round",
             "2024-12-31",
+            "https://careers.google.com/jobs/apply",
             "true"
         ],
         # Example 2: Branch-specific (update existing job - with job_id)
@@ -308,6 +323,7 @@ async def download_job_template(
             "Master's degree in Data Science or related field;ML experience;Python and TensorFlow knowledge",
             "Technical Round;Managerial Round;Final HR Round",
             "2024-11-30",
+            "",
             "true"
         ],
         # Example 3: Specific students (new job)
@@ -326,6 +342,7 @@ async def download_job_template(
             "Bachelor's degree;3+ years experience;Strong analytical skills;Excellent communication",
             "Aptitude Test;Case Study Round;Product Round;HR Round",
             "2024-10-15",
+            "",
             "true"
         ],
         # Example 4: Internship (new job)
@@ -344,6 +361,7 @@ async def download_job_template(
             "Currently pursuing Bachelor's or Master's degree;Basic programming knowledge",
             "Online Test;Technical Interview",
             "2024-09-30",
+            "",
             "true"
         ]
     ]
@@ -818,18 +836,18 @@ async def bulk_upload_jobs(
     Supported formats: .xlsx, .xls, .csv
     
     Excel/CSV Format (headers required):
-    title,company,role,description,location,ctc,job_type,eligibility_type,eligible_branches,requirements,rounds,deadline,is_active
+    title,company,role,description,location,ctc,job_type,eligibility_type,eligible_branches,requirements,rounds,deadline,apply_link,is_active
     
     Required fields: title, company, role
-    Optional fields: description, location, ctc, job_type, eligibility_type, eligible_branches (comma-separated), requirements (semicolon-separated), rounds (semicolon-separated), deadline, is_active
+    Optional fields: description, location, ctc, job_type, eligibility_type, eligible_branches (comma-separated), requirements (semicolon-separated), rounds (semicolon-separated), deadline, apply_link (external application URL), is_active
     
     Eligibility types: "all_students", "branch", "specific_students"
     For "branch" type, provide eligible_branches as comma-separated (e.g., "CSE,ECE,IT")
     For "specific_students", provide eligible_user_ids as comma-separated (e.g., "1,2,3")
     
     Example:
-    title,company,role,description,location,ctc,job_type,eligibility_type,eligible_branches,requirements,rounds,deadline,is_active
-    Software Engineer,Google,Software Engineer,Looking for experienced developer,Hyderabad,₹15 LPA,On-Campus,branch,"CSE,ECE,IT","Bachelor's degree;2-5 years experience","Online Test;Technical Interview;HR Round",2024-12-31,true
+    title,company,role,description,location,ctc,job_type,eligibility_type,eligible_branches,requirements,rounds,deadline,apply_link,is_active
+    Software Engineer,Google,Software Engineer,Looking for experienced developer,Hyderabad,₹15 LPA,On-Campus,branch,"CSE,ECE,IT","Bachelor's degree;2-5 years experience","Online Test;Technical Interview;HR Round",2024-12-31,https://careers.google.com/jobs/apply,true
     """
     try:
         print(f"[Bulk Upload Jobs] Starting upload for user {current_user.id}")
@@ -1085,6 +1103,7 @@ async def bulk_upload_jobs(
                     existing_job.ctc = job_data.get('ctc') or None
                     existing_job.job_type = job_data.get('job_type', 'On-Campus')
                     existing_job.eligibility_type = eligibility_type
+                    existing_job.apply_link = job_data.get('apply_link') or None
                     existing_job.eligible_branches = eligible_branches
                     existing_job.eligible_user_ids = eligible_user_ids
                     existing_job.requirements = requirements
@@ -1110,6 +1129,7 @@ async def bulk_upload_jobs(
                         requirements=requirements,
                         rounds=rounds,
                         deadline=deadline,
+                        apply_link=job_data.get('apply_link') or None,
                         is_active=is_active,
                         college_id=college_id,  # Set based on user role (None for super admin, college_id for admin/faculty)
                         created_by=current_user.id

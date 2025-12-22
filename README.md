@@ -41,18 +41,23 @@ npm run dev
 
 ## 🚀 Deployment
 
-**📄 Complete Guide:** `COMPLETE_DEPLOYMENT_GUIDE.md`
+### Docker Deployment (Recommended)
 
-This single comprehensive guide covers:
-- ✅ GitHub repository setup
-- ✅ What to commit
-- ✅ Hostinger VPS setup (fresh OS)
-- ✅ Docker deployment (recommended)
-- ✅ Manual deployment
-- ✅ GitHub CI/CD configuration
-- ✅ End-to-end deployment
+```bash
+# Start all services
+docker-compose up -d
 
-**Quick Start:** See `QUICK_START.md` for checklist
+# Or for local development
+docker-compose -f docker-compose.local.yml up -d
+```
+
+### Manual Deployment
+
+1. **Backend**: Deploy FastAPI app to your server
+2. **Frontend**: Build and serve static files via Nginx
+3. **Database**: Configure PostgreSQL/MySQL connection
+
+See `docker-compose.yml` and `nginx.conf` for configuration details.
 
 ---
 
@@ -63,10 +68,9 @@ elevate-edu-ui/
 ├── src/                    # Frontend (React + TypeScript)
 ├── backend/               # Backend (FastAPI + Python)
 ├── public/                # Static assets
-├── .github/workflows/     # GitHub CI/CD workflows
 ├── docker-compose.yml     # Docker deployment
 ├── nginx.conf             # Nginx configuration
-└── COMPLETE_DEPLOYMENT_GUIDE.md  # ⭐ Start here!
+└── hostinger-deployment/  # Deployment scripts
 ```
 
 ## License

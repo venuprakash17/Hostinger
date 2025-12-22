@@ -213,7 +213,8 @@ async def list_labs(
     # Order by created date
     query = query.order_by(desc(CodingLab.created_at))
     
-    labs = query.offset(skip).limit(limit).all()
+    from app.core.db_utils import safe_list_query
+    labs = safe_list_query(db, query.offset(skip).limit(limit))
     
     # Add session, problem and submission counts
     result = []

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Code2, Play, Clock, Zap, Eye, X } from "lucide-react";
+import { Code2, Play, Clock, Zap, Eye } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -107,7 +107,7 @@ export default function CodingProblemsList() {
           {problems.map((problem) => (
             <Card 
               key={problem.id} 
-              className="hover:shadow-lg transition-all border-2 hover:border-primary/50 group"
+              className="coding-problem-card group"
             >
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-2 mb-2">
@@ -190,10 +190,11 @@ export default function CodingProblemsList() {
                         e.stopPropagation();
                         handleCodeNow(problem.id);
                       }}
-                      className="gap-2"
+                      className="gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium px-3 sm:px-4 h-8 sm:h-9 shadow-sm hover:shadow transition-all duration-200"
                     >
-                      <Code2 className="h-4 w-4" />
-                      Code Now
+                      <Code2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
+                      <span className="hidden sm:inline">Code Now</span>
+                      <span className="sm:hidden">Code</span>
                     </Button>
                   </div>
                 </div>
@@ -209,7 +210,7 @@ export default function CodingProblemsList() {
           {previewProblem && (
             <>
               <DialogHeader>
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                       <DialogTitle className="text-2xl">{previewProblem.title}</DialogTitle>
@@ -232,14 +233,6 @@ export default function CodingProblemsList() {
                       ))}
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0"
-                    onClick={() => setPreviewProblem(null)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
                 </div>
               </DialogHeader>
               <div className="space-y-6">
@@ -323,20 +316,21 @@ export default function CodingProblemsList() {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex gap-2 pt-4 border-t">
+                <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t">
                   <Button 
                     onClick={() => {
                       setPreviewProblem(null);
                       handleCodeNow(previewProblem.id);
                     }}
-                    className="flex-1 gap-2"
+                    className="flex-1 gap-2 w-full sm:w-auto"
                   >
-                    <Code2 className="h-4 w-4" />
-                    Try Now
+                    <Code2 className="h-4 w-4 flex-shrink-0" />
+                    <span>Try Now</span>
                   </Button>
                   <Button 
                     variant="outline" 
                     onClick={() => setPreviewProblem(null)}
+                    className="w-full sm:w-auto"
                   >
                     Close Preview
                   </Button>

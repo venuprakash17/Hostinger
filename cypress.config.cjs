@@ -40,6 +40,9 @@ module.exports = defineConfig({
   env: {
     BACKEND_URL: 'http://localhost:8000',
     API_BASE_URL: 'http://localhost:8000/api/v1',
+    VITE_API_BASE_URL: 'http://localhost:8000/api/v1',
+    TEST_EMAIL: 'admin@elevate.edu',
+    TEST_PASSWORD: 'SuperAdmin123',
   },
 });
 

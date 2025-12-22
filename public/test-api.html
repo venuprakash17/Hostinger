@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API URL Test</title>
+</head>
+<body>
+    <h1>API Configuration Test</h1>
+    <div id="result"></div>
+    <script type="module">
+        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+        document.getElementById('result').innerHTML = `
+            <p><strong>API Base URL:</strong> ${API_BASE_URL}</p>
+            <p>If this shows port 8090, the .env is not being read correctly.</p>
+            <p>If this shows port 8000, the configuration is correct.</p>
+        `;
+    </script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Code2, Play, Check, Loader2, CheckCircle2, XCircle, Clock, Zap, RotateCcw, Copy, ArrowLeft, ChevronDown, ChevronUp, Minimize2, Maximize2 } from "lucide-react";
+import { Code2, Play, Check, Loader2, CheckCircle2, XCircle, Clock, Zap, RotateCcw, Copy, ArrowLeft, ChevronDown, ChevronUp, Minimize2, Maximize2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ interface CodingProblem {
   description: string;
   input_format?: string;
   output_format?: string;
-  difficulty: string;
+  difficulty?: string;
   tags?: string[];
   constraints?: string;
   sample_input?: string;
@@ -89,6 +89,7 @@ export default function Coding() {
   const [testCaseResults, setTestCaseResults] = useState<Map<number, any>>(new Map());
   const [runningTestCaseIndex, setRunningTestCaseIndex] = useState<number | null>(null);
   const [isTestCasesMinimized, setIsTestCasesMinimized] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   
   // Analytics tracking
   const [sessionStartTime] = useState(Date.now());
@@ -96,8 +97,26 @@ export default function Coding() {
   const [timeSpentInterval, setTimeSpentInterval] = useState<NodeJS.Timeout | null>(null);
   const editorRef = useRef<any>(null);
 
-  // Load single problem when problemIdParam is provided
+  // Load single problem when problemIdParam is provided or from company training
   useEffect(() => {
+    // Check for company training problem first
+    const companyTrainingProblem = sessionStorage.getItem('company_training_problem');
+    if (companyTrainingProblem) {
+      try {
+        const problemData = JSON.parse(companyTrainingProblem);
+        setSelectedProblem(problemData as CodingProblem);
+        setLoading(false);
+        // Set starter code based on language
+        const starterCode = problemData[`starter_code_${language}`] || problemData.starter_code_python || "// Write your code here\n\n";
+        setCode(starterCode);
+        sessionStorage.removeItem('company_training_problem'); // Clear after use
+        return;
+      } catch (error) {
+        console.error("Error parsing company training problem:", error);
+        sessionStorage.removeItem('company_training_problem');
+      }
+    }
+    
     if (problemIdParam) {
       fetchSingleProblem(parseInt(problemIdParam));
     } else {
@@ -137,7 +156,7 @@ export default function Coding() {
   }, [selectedProblem, problemStartTime]);
 
   useEffect(() => {
-    if (selectedProblem) {
+    if (selectedProblem && selectedProblem.id) {
       if (selectedProblem.restricted_languages && selectedProblem.restricted_languages.length > 0) {
         if (!selectedProblem.restricted_languages.includes(language)) {
           setLanguage(selectedProblem.restricted_languages[0]);
@@ -166,6 +185,11 @@ export default function Coding() {
   }, [selectedProblem, language]);
 
   const loadSubmissions = async (problemId: number) => {
+    if (!problemId || isNaN(problemId)) {
+      console.error("Invalid problem ID for loading submissions:", problemId);
+      setSubmissions([]);
+      return;
+    }
     try {
       setLoadingSubmissions(true);
       const data = await apiClient.getProblemSubmissions(problemId);
@@ -179,6 +203,10 @@ export default function Coding() {
   };
 
   const loadSavedCode = async (problemId: number, lang: string): Promise<any> => {
+    if (!problemId || isNaN(problemId)) {
+      console.error("Invalid problem ID for loading saved code:", problemId);
+      return null;
+    }
     try {
       const savedCode = await apiClient.getSavedCode(problemId, lang) as any;
       if (savedCode && savedCode.code) {
@@ -195,7 +223,40 @@ export default function Coding() {
   const fetchSingleProblem = async (problemId: number) => {
     try {
       setLoading(true);
-      const problem = await apiClient.getCodingProblem(problemId) as CodingProblem;
+      const response = await apiClient.getCodingProblem(problemId);
+      
+      // Handle case where API client returns array instead of object
+      let problem: CodingProblem;
+      if (Array.isArray(response)) {
+        if (response.length === 0) {
+          console.error("Empty array received for problem:", problemId);
+          toast({
+            title: "Error",
+            description: "Problem not found",
+            variant: "destructive",
+          });
+          navigate("/coding-problems");
+          return;
+        }
+        // If array, take first element
+        problem = response[0] as CodingProblem;
+      } else {
+        problem = response as CodingProblem;
+      }
+      
+      // Validate that the problem has an ID
+      if (!problem || !problem.id) {
+        console.error("Invalid problem data received:", problem);
+        toast({
+          title: "Error",
+          description: "Invalid problem data received from server",
+          variant: "destructive",
+        });
+        navigate("/coding-problems");
+        return;
+      }
+      
+      console.log("Problem loaded successfully:", { id: problem.id, title: problem.title });
       setSelectedProblem(problem);
     } catch (error: any) {
       console.error("Error fetching coding problem:", error);
@@ -212,7 +273,7 @@ export default function Coding() {
 
   // Analytics: Track time spent on problem
   const trackTimeSpent = async (isFinal: boolean = false) => {
-    if (!selectedProblem || !problemStartTime) return;
+    if (!selectedProblem || !selectedProblem.id || !problemStartTime) return;
     
     try {
       const timeSpent = Math.floor((Date.now() - problemStartTime) / 1000); // seconds
@@ -248,7 +309,7 @@ export default function Coding() {
   };
 
   useEffect(() => {
-    if (!selectedProblem || !code || code.trim().length === 0) return;
+    if (!selectedProblem || !selectedProblem.id || !code || code.trim().length === 0) return;
     
     // Only save if code is different from starter code
     const isStarterCode = code === "// Write your code here\n\n" || 
@@ -257,13 +318,19 @@ export default function Coding() {
     if (isStarterCode) return;
     
     const timeoutId = setTimeout(() => {
-      saveCode(selectedProblem.id, language, code);
+      if (selectedProblem && selectedProblem.id) {
+        saveCode(selectedProblem.id, language, code);
+      }
     }, 2000); // Increased debounce to 2 seconds
     
     return () => clearTimeout(timeoutId);
   }, [code, selectedProblem, language]);
 
   const saveCode = async (problemId: number, lang: string, codeToSave: string) => {
+    if (!problemId || isNaN(problemId)) {
+      console.error("Invalid problem ID for saving code:", problemId);
+      return;
+    }
     try {
       // Ensure we're calling the correct endpoint
       await apiClient.saveCode(problemId, lang, codeToSave);
@@ -275,7 +342,10 @@ export default function Coding() {
     }
   };
 
-  const getDifficultyColor = (difficulty: string) => {
+  const getDifficultyColor = (difficulty: string | undefined | null) => {
+    if (!difficulty || typeof difficulty !== 'string') {
+      return "bg-muted";
+    }
     switch (difficulty.toLowerCase()) {
       case "easy": return "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20";
       case "medium": return "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20";
@@ -285,7 +355,7 @@ export default function Coding() {
   };
 
   const handleRun = async () => {
-    if (!selectedProblem) {
+    if (!selectedProblem || !selectedProblem.id) {
       toast({ title: "Error", description: "Please select a problem first", variant: "destructive" });
       return;
     }
@@ -330,7 +400,12 @@ export default function Coding() {
   };
 
   const handleRunTestCase = async (testCaseIndex: number) => {
-    if (!selectedProblem || !code || code.trim().length === 0) {
+    if (!selectedProblem || !selectedProblem.id) {
+      toast({ title: "Error", description: "Please select a problem first", variant: "destructive" });
+      return;
+    }
+
+    if (!code || code.trim().length === 0) {
       toast({ title: "Error", description: "Please write some code first", variant: "destructive" });
       return;
     }
@@ -373,7 +448,7 @@ export default function Coding() {
   };
 
   const handleSubmit = async () => {
-    if (!selectedProblem) {
+    if (!selectedProblem || !selectedProblem.id) {
       toast({ title: "Error", description: "Please select a problem first", variant: "destructive" });
       return;
     }
@@ -532,6 +607,19 @@ export default function Coding() {
           <Button
             variant="ghost"
             size="sm"
+            onClick={() => {
+              setSidebarCollapsed(!sidebarCollapsed);
+              // Toggle sidebar via CSS class on document body
+              document.body.classList.toggle('coding-sidebar-collapsed', !sidebarCollapsed);
+            }}
+            className="h-8 w-8 p-0"
+            title={sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={handleBack}
             className="h-8 gap-2"
           >
@@ -542,7 +630,7 @@ export default function Coding() {
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Problem</span>
             <Badge className={`${getDifficultyColor(selectedProblem.difficulty)} text-xs font-medium`} variant="outline">
-              {selectedProblem.difficulty}
+              {selectedProblem.difficulty || "Unknown"}
             </Badge>
           </div>
         </div>
@@ -561,10 +649,19 @@ export default function Coding() {
             size="sm"
             onClick={handleSubmit}
             disabled={isRunning}
-            className="h-8 gap-2 bg-green-600 hover:bg-green-700"
+            className="coding-submit-button h-8 gap-2 px-4"
           >
-            <Check className="h-3 w-3" />
-            {isRunning ? "Submitting..." : "Submit"}
+            {isRunning ? (
+              <>
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Submitting...
+              </>
+            ) : (
+              <>
+                <Check className="h-3 w-3" />
+                Submit
+              </>
+            )}
           </Button>
         </div>
       </div>
@@ -592,7 +689,7 @@ export default function Coding() {
                   <div className="flex items-center gap-3 mb-3">
                     <h1 className="text-2xl font-semibold">{selectedProblem.title}</h1>
                     <Badge className={`${getDifficultyColor(selectedProblem.difficulty)} font-medium`} variant="outline">
-                      {selectedProblem.difficulty}
+                      {selectedProblem.difficulty || "Unknown"}
                     </Badge>
                     {selectedProblem.scope_type === "svnapro" ? (
                       <Badge variant="default" className="bg-blue-600">

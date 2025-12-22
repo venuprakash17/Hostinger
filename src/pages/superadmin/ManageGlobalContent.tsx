@@ -136,8 +136,8 @@ export default function ManageGlobalContent() {
 
   const fetchCodingProblems = async () => {
     try {
-      // Use new endpoint - no scope_type needed
-      const data = await apiClient.listCodingProblems({});
+      // Use global-content endpoint for super admin management
+      const data = await apiClient.listGlobalCodingProblems({});
       setCodingProblems(data || []);
     } catch (error: any) {
       console.error('Error fetching coding problems:', error);

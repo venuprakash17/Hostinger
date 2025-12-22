@@ -28,7 +28,10 @@ import {
   MessageSquare,
   ArrowUp,
   Ticket,
-  RefreshCw
+  Archive,
+  RefreshCw,
+  Upload,
+  Mic
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
@@ -53,26 +56,27 @@ const studentNavItems = [
   { icon: ClipboardCheck, label: "Tests", path: "/tests" },
   { icon: Calendar, label: "Training Sessions", path: "/training-sessions" },
   { icon: Target, label: "Placement Training", path: "/placement-training" },
+  { icon: Building2, label: "Company Training", path: "/company-training" },
   { icon: Briefcase, label: "Jobs & Placement", path: "/jobs" },
   { icon: ListChecks, label: "Application Tracker", path: "/applications" },
-  { icon: Award, label: "Certificates", path: "/certificates" },
+  { icon: Mic, label: "Mock Interview (AI)", path: "/mock-interview" },
   { icon: MessageSquare, label: "Mock Interviews", path: "/mock-interviews" },
   { icon: Ticket, label: "Hall Tickets", path: "/hall-tickets" },
-  { icon: Calendar, label: "Attendance", path: "/attendance" },
-  { icon: BarChart3, label: "Attendance Analytics", path: "/attendance-analytics" },
+  // Attendance hidden but settings kept
+  // { icon: Calendar, label: "Attendance", path: "/attendance" },
+  // { icon: BarChart3, label: "Attendance Analytics", path: "/attendance-analytics" },
   { icon: BarChart3, label: "Analytics", path: "/analytics" },
 ];
 
 const facultyNavItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/faculty/dashboard" },
   { icon: FileQuestion, label: "Manage Quizzes", path: "/faculty/quizzes" },
-  { icon: Code2, label: "Coding Practice", path: "/coding" },
   { icon: Code2, label: "Coding Labs", path: "/coding-labs" },
   { icon: Code2, label: "Manage Coding Problems", path: "/faculty/coding-problems" },
-  { icon: UserCheck, label: "Mark Attendance", path: "/faculty/attendance" },
-  { icon: Award, label: "Review Certificates", path: "/admin/certificates" },
+  // Attendance hidden but settings kept
+  // { icon: UserCheck, label: "Mark Attendance", path: "/faculty/attendance" },
   { icon: Bell, label: "Notifications", path: "/admin/notifications" },
-  { icon: BarChart3, label: "Attendance Analytics", path: "/attendance-analytics" },
+  // { icon: BarChart3, label: "Attendance Analytics", path: "/attendance-analytics" },
   { icon: BarChart3, label: "Analytics", path: "/analytics" },
 ];
 
@@ -82,14 +86,14 @@ const hodNavItems = [
   { icon: GraduationCap, label: "Manage Staff", path: "/admin/staff" },
   { icon: BookOpen, label: "Subjects", path: "/admin/subjects" },
   { icon: School, label: "Sections", path: "/admin/sections" },
+  { icon: Upload, label: "Bulk Upload Structure", path: "/admin/bulk-upload-academic-structure" },
   { icon: FileQuestion, label: "Manage Quizzes", path: "/faculty/quizzes" },
-  { icon: Code2, label: "Coding Practice", path: "/coding" },
   { icon: Code2, label: "Coding Labs", path: "/coding-labs" },
   { icon: Code2, label: "Manage Coding Problems", path: "/faculty/coding-problems" },
-  { icon: UserCheck, label: "Mark Attendance", path: "/faculty/attendance" },
-  { icon: Award, label: "Review Certificates", path: "/admin/certificates" },
+  // Attendance hidden but settings kept
+  // { icon: UserCheck, label: "Mark Attendance", path: "/faculty/attendance" },
   { icon: Bell, label: "Notifications", path: "/admin/notifications" },
-  { icon: BarChart3, label: "Attendance Analytics", path: "/attendance-analytics" },
+  // { icon: BarChart3, label: "Attendance Analytics", path: "/attendance-analytics" },
   { icon: BarChart3, label: "Analytics", path: "/analytics" },
 ];
 
@@ -99,15 +103,15 @@ const adminNavItems = [
   { icon: GraduationCap, label: "Manage Staff", path: "/admin/staff" },
   { icon: Building2, label: "Departments", path: "/admin/departments" },
   { icon: BookOpen, label: "Subjects", path: "/admin/subjects" },
-  { icon: UserCheck, label: "Manage Attendance", path: "/attendance-analytics" },
+  // Attendance hidden but settings kept
+  // { icon: UserCheck, label: "Manage Attendance", path: "/attendance-analytics" },
   { icon: Briefcase, label: "Jobs & Placement", path: "/admin/jobs" },
   { icon: RefreshCw, label: "Job Aggregation", path: "/admin/job-aggregation" },
-  { icon: Award, label: "Review Certificates", path: "/admin/certificates" },
   { icon: MessageSquare, label: "Mock Interviews", path: "/admin/mock-interviews" },
   { icon: Bell, label: "Notifications", path: "/admin/notifications" },
   { icon: School, label: "Sections & Faculty", path: "/admin/sections" },
+  { icon: Upload, label: "Bulk Upload Structure", path: "/admin/bulk-upload-academic-structure" },
   { icon: FileQuestion, label: "Manage Quizzes", path: "/faculty/quizzes" },
-  { icon: Code2, label: "Coding Practice", path: "/coding" },
   { icon: Code2, label: "Coding Labs", path: "/coding-labs" },
   { icon: Code2, label: "Manage Coding Problems", path: "/faculty/coding-problems" },
   { icon: BarChart3, label: "Analytics", path: "/analytics" },
@@ -116,11 +120,14 @@ const adminNavItems = [
 const superAdminNavItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/superadmin/dashboard" },
   { icon: School, label: "Manage Colleges", path: "/superadmin/colleges" },
+  { icon: Building2, label: "Manage Institutions", path: "/superadmin/institutions" },
   { icon: Users, label: "All Students", path: "/superadmin/all-students" },
   { icon: User, label: "Manage Users", path: "/superadmin/users" },
   { icon: FileQuestion, label: "Global Content", path: "/superadmin/global-content" },
+  { icon: Target, label: "Company Training", path: "/superadmin/company-training" },
   { icon: Briefcase, label: "Manage Jobs", path: "/superadmin/jobs" },
   { icon: ArrowUp, label: "Year Promotion", path: "/superadmin/promotions" },
+  { icon: Archive, label: "Academic Year Migration", path: "/superadmin/academic-year-migration" },
   { icon: Bell, label: "Notifications", path: "/admin/notifications" },
   { icon: Bell, label: "Announcements", path: "/superadmin/announcements" },
   { icon: Code2, label: "Coding Labs", path: "/coding-labs" },

@@ -212,7 +212,8 @@ async def list_aggregated_jobs(
                 query = query.filter(JobAggregation.college_id.is_(None))
     
     query = query.filter(JobAggregation.is_active == True)
-    jobs = query.order_by(JobAggregation.posted_date.desc()).offset(skip).limit(limit).all()
+    from app.core.db_utils import safe_list_query
+    jobs = safe_list_query(db, query.order_by(JobAggregation.posted_date.desc()).offset(skip).limit(limit))
     
     return jobs
 

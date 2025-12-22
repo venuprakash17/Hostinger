@@ -186,7 +186,7 @@ export function CodeEditor({
     setExecutionResult(null);
 
     try {
-      const result = await apiClient.executeCode({
+      const result = await apiClient.executeLabCode({
         code,
         language,
         input_data: inputData || undefined,

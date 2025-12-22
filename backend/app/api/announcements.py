@@ -116,7 +116,8 @@ def get_user_announcements(
         query = query.filter(and_(*conditions))
     
     # Order by creation date (newest first)
-    announcements = query.order_by(Announcement.created_at.desc()).all()
+    from app.core.db_utils import safe_list_query
+    announcements = safe_list_query(db, query.order_by(Announcement.created_at.desc()))
     
     return announcements
 

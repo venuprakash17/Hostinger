@@ -8,6 +8,8 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    // HMR will use the same port as the server
+    // clientPort is set automatically based on server port
   },
   build: {
     outDir: 'dist',
@@ -23,9 +25,19 @@ export default defineConfig(({ mode }) => ({
           query: ['@tanstack/react-query'],
           ui: ['lucide-react', 'sonner'],
           resume: ['@react-pdf/renderer'],
+          charts: ['recharts'], // Separate charts bundle
+          monaco: ['@monaco-editor/react'], // Separate Monaco editor bundle
         }
       }
-    }
+    },
+    // Optimize chunk loading
+    cssCodeSplit: true,
+    // Reduce bundle size
+    terserOptions: {
+      compress: {
+        drop_console: true, // Remove console.log in production
+      },
+    },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

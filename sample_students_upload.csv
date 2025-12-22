@@ -1,0 +1,10 @@
+email,password,full_name,branch_id,section,roll_number,present_year
+student.cs1@svnapro.com,Password123,John Student,CSE001,A,20CS001,1
+student.cs2@svnapro.com,Password123,Jane Student,CSE001,B,20CS002,1
+student.cs3@svnapro.com,Password123,Bob Student,CSE001,A,20CS003,2
+student.ece1@svnapro.com,Password123,Alice Student,ECE001,A,20EC001,1
+student.ece2@svnapro.com,Password123,Charlie Student,ECE001,B,20EC002,2
+student.me1@svnapro.com,Password123,David Student,ME001,A,20ME001,1
+student.eee1@svnapro.com,Password123,Emma Student,EEE001,A,20EE001,1
+student.aiml1@svnapro.com,Password123,Frank Student,AIM001,A,20AI001,1
+

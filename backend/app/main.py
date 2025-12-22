@@ -10,12 +10,14 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from starlette.middleware.errors import ServerErrorMiddleware
+from app.api.optimization_middleware import PerformanceMiddleware
 from app.core.database import get_db
 from app.api.auth import get_current_user
 from app.models.user import User
 from app.config import get_settings
 from app.core.database import engine, Base
-from app.api import auth, jobs, users, colleges, global_content, bulk_upload, promotion, training_sessions, attendance, academic, certificates, resume, job_aggregation, mock_interviews, hall_tickets, notifications, announcements, coding_labs, proctoring, lab_management, intelligent_lab, coding_problems, analytics
+from app.api import auth, jobs, users, colleges, institutions, global_content, bulk_upload, promotion, training_sessions, attendance, academic, resume, job_aggregation, mock_interviews, hall_tickets, notifications, announcements, coding_labs, proctoring, lab_management, intelligent_lab, coding_problems, analytics, migration, company_training, comprehensive_analytics, analytics_drilldown, resume_analytics
+from app.api import mock_interview_ai
 
 settings = get_settings()
 
@@ -92,6 +94,10 @@ class CORSHeaderMiddleware(BaseHTTPMiddleware):
         
         return response
 
+# Performance monitoring middleware (add first to track all requests)
+from app.api.optimization_middleware import PerformanceMiddleware
+app.add_middleware(PerformanceMiddleware)
+
 # Add CORS header middleware FIRST (outermost layer)
 # This ensures CORS headers are added to ALL responses, including errors
 app.add_middleware(CORSHeaderMiddleware)
@@ -152,7 +158,27 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def general_exception_handler(request: Request, exc: Exception):
     """Handle all other exceptions with CORS headers"""
     import traceback
+    import sys
+    from sqlalchemy.exc import ProgrammingError, InternalError
+    
     error_trace = traceback.format_exc()
+    error_str = str(exc).lower()
+    
+    # Check if it's a database column error
+    is_column_error = (
+        isinstance(exc, (ProgrammingError, InternalError)) and 
+        ("undefinedcolumn" in error_str or ("column" in error_str and "does not exist" in error_str))
+    )
+    
+    # Print to stderr so it shows in docker logs
+    print(f"[EXCEPTION HANDLER] Unhandled exception: {exc}", file=sys.stderr)
+    print(f"[EXCEPTION HANDLER] Path: {request.url.path}", file=sys.stderr)
+    if is_column_error:
+        print(f"[EXCEPTION HANDLER] Database column error detected - this should be handled by safe queries", file=sys.stderr)
+    print(f"[EXCEPTION HANDLER] Traceback:\n{error_trace}", file=sys.stderr)
+    sys.stderr.flush()
+    
+    # Also print to stdout for uvicorn logs
     print(f"Unhandled exception: {exc}")
     print(error_trace)
     
@@ -166,9 +192,13 @@ async def general_exception_handler(request: Request, exc: Exception):
         else:
             allow_origin = cors_origins[0] if cors_origins else "*"
     
-    error_detail = str(exc)
-    if settings.DEBUG:
-        error_detail = f"{str(exc)}\n\nTraceback:\n{error_trace}"
+    # For column errors, return a more user-friendly message
+    if is_column_error:
+        error_detail = "Database schema mismatch detected. Please contact support."
+    else:
+        error_detail = str(exc)
+        if settings.DEBUG:
+            error_detail = f"{str(exc)}\n\nTraceback:\n{error_trace}"
     
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -186,16 +216,18 @@ app.include_router(auth.router, prefix=settings.API_V1_STR)
 app.include_router(jobs.router, prefix=settings.API_V1_STR)
 app.include_router(users.router, prefix=settings.API_V1_STR)
 app.include_router(colleges.router, prefix=settings.API_V1_STR)
+app.include_router(institutions.router, prefix=settings.API_V1_STR)
 app.include_router(global_content.router, prefix=settings.API_V1_STR)
 app.include_router(bulk_upload.router, prefix=settings.API_V1_STR)
 app.include_router(promotion.router, prefix=settings.API_V1_STR)
 app.include_router(training_sessions.router, prefix=settings.API_V1_STR)
 app.include_router(attendance.router, prefix=settings.API_V1_STR)
 app.include_router(academic.router, prefix=settings.API_V1_STR)
-app.include_router(certificates.router, prefix=settings.API_V1_STR)
+app.include_router(migration.router, prefix=settings.API_V1_STR)
 app.include_router(resume.router, prefix=settings.API_V1_STR)
 app.include_router(job_aggregation.router, prefix=settings.API_V1_STR)
 app.include_router(mock_interviews.router, prefix=settings.API_V1_STR)
+app.include_router(mock_interview_ai.router, prefix=settings.API_V1_STR)
 app.include_router(hall_tickets.router, prefix=settings.API_V1_STR)
 app.include_router(notifications.router, prefix=settings.API_V1_STR)
 app.include_router(announcements.router, prefix=settings.API_V1_STR)
@@ -205,7 +237,10 @@ app.include_router(proctoring.router, prefix=settings.API_V1_STR)
 app.include_router(lab_management.router, prefix=settings.API_V1_STR)
 app.include_router(intelligent_lab.router, prefix=settings.API_V1_STR)
 app.include_router(analytics.router, prefix=settings.API_V1_STR)
-app.include_router(analytics.router, prefix=settings.API_V1_STR)
+app.include_router(comprehensive_analytics.router, prefix=settings.API_V1_STR)
+app.include_router(analytics_drilldown.router, prefix=settings.API_V1_STR)
+app.include_router(company_training.router, prefix=settings.API_V1_STR)
+app.include_router(resume_analytics.router, prefix=settings.API_V1_STR)
 
 # WebSocket endpoint for coding labs monitoring
 @app.websocket("/ws/coding-labs/{lab_id}")
@@ -304,32 +339,82 @@ async def websocket_coding_labs(
 @app.on_event("startup")
 async def startup():
     """Create database tables on startup and run migrations"""
+    import sys
     Base.metadata.create_all(bind=engine)
     
-    # Add problem_code column if it doesn't exist (migration)
+    # Add missing columns if they don't exist (migration)
+    # CRITICAL: Run this synchronously and ensure it completes before app accepts requests
     try:
         from sqlalchemy import text, inspect
+        from sqlalchemy.exc import ProgrammingError, OperationalError
+        
         inspector = inspect(engine)
         
         if 'coding_problems' in inspector.get_table_names():
             columns = [col['name'] for col in inspector.get_columns('coding_problems')]
+            print(f"[MIGRATION] Current columns in coding_problems: {columns}", file=sys.stderr)
+            sys.stderr.flush()
+            
+            # Add problem_code column if missing
             if 'problem_code' not in columns:
-                print("🔄 Adding problem_code column to coding_problems table...")
-                with engine.connect() as conn:
-                    conn.execute(text("""
-                        ALTER TABLE coding_problems 
-                        ADD COLUMN problem_code VARCHAR(100)
-                    """))
-                    conn.commit()
-                    
-                    conn.execute(text("""
-                        CREATE INDEX IF NOT EXISTS idx_coding_problems_problem_code 
-                        ON coding_problems(problem_code)
-                    """))
-                    conn.commit()
-                    print("✅ Added problem_code column and index")
+                print("🔄 Adding problem_code column to coding_problems table...", file=sys.stderr)
+                sys.stderr.flush()
+                try:
+                    with engine.begin() as conn:  # Use begin() for automatic transaction management
+                        conn.execute(text("""
+                            ALTER TABLE coding_problems 
+                            ADD COLUMN IF NOT EXISTS problem_code VARCHAR(100)
+                        """))
+                        conn.execute(text("""
+                            CREATE INDEX IF NOT EXISTS idx_coding_problems_problem_code 
+                            ON coding_problems(problem_code)
+                        """))
+                    print("✅ Added problem_code column and index", file=sys.stderr)
+                    sys.stderr.flush()
+                except (ProgrammingError, OperationalError) as e:
+                    # Column might already exist or other error
+                    if "already exists" not in str(e).lower() and "duplicate" not in str(e).lower():
+                        print(f"⚠️  Error adding problem_code: {e}", file=sys.stderr)
+                        sys.stderr.flush()
+            
+            # Add year_str column if missing - CRITICAL FIX
+            if 'year_str' not in columns:
+                print("🔄 Adding year_str column to coding_problems table...", file=sys.stderr)
+                sys.stderr.flush()
+                try:
+                    # Use explicit connection with commit
+                    conn = engine.connect()
+                    trans = conn.begin()
+                    try:
+                        conn.execute(text("ALTER TABLE coding_problems ADD COLUMN year_str VARCHAR(20)"))
+                        trans.commit()
+                        print("✅ Added year_str column", file=sys.stderr)
+                        sys.stderr.flush()
+                    except Exception as add_error:
+                        trans.rollback()
+                        error_msg = str(add_error).lower()
+                        if "already exists" not in error_msg and "duplicate" not in error_msg:
+                            raise add_error
+                        else:
+                            print("ℹ️  year_str column already exists", file=sys.stderr)
+                            sys.stderr.flush()
+                    finally:
+                        conn.close()
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if "already exists" not in error_msg and "duplicate" not in error_msg:
+                        print(f"⚠️  Error adding year_str: {e}", file=sys.stderr)
+                        import traceback
+                        print(f"⚠️  Traceback:\n{traceback.format_exc()}", file=sys.stderr)
+                        sys.stderr.flush()
+            else:
+                print("ℹ️  year_str column already exists", file=sys.stderr)
+                sys.stderr.flush()
     except Exception as e:
-        print(f"⚠️  Could not add problem_code column (may already exist): {e}")
+        import traceback
+        print(f"⚠️  Migration error: {e}", file=sys.stderr)
+        print(f"⚠️  Traceback:\n{traceback.format_exc()}", file=sys.stderr)
+        sys.stderr.flush()
 
 
 @app.get("/")

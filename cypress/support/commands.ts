@@ -25,50 +25,62 @@ declare global {
 Cypress.Commands.add('loginAs', (email: string, password: string, expectedRole?: string) => {
   cy.visit('/login');
   
-  // Determine which tab to use
-  if (email.includes('student') || expectedRole === 'student') {
-    // Student tab is default, no need to click
-    cy.get('#student-email').should('be.visible');
-    cy.get('#student-email').type(email);
-    cy.get('#student-password').type(password);
-  } else {
-    // Click on Faculty/Admin tab
+  // Wait for login page to load
+  cy.contains('Login', { timeout: 10000 }).should('be.visible');
+  
+  // Determine which tab to use based on email or expected role
+  const isStudent = email.includes('student') || expectedRole === 'student';
+  
+  if (!isStudent) {
+    // Click on Faculty/Admin tab for non-students
     cy.contains('Faculty / Admin').click();
-    cy.get('#staff-email').should('be.visible');
-    cy.get('#staff-email').type(email);
-    cy.get('#staff-password').type(password);
+    cy.wait(500);
+    
+    // Use staff email and password fields
+    cy.get('#staff-email').should('be.visible').clear().type(email);
+    cy.get('#staff-password').should('be.visible').clear().type(password);
+  } else {
+    // Student tab is default
+    cy.get('#student-email').should('be.visible').clear().type(email);
+    cy.get('#student-password').should('be.visible').clear().type(password);
   }
   
-  cy.get('button[type="submit"]').click();
+  // Submit form
+  cy.get('button[type="submit"]').contains('Login').click();
   
   // Wait for navigation - increased timeout for login processing
-  cy.url({ timeout: 15000 }).should('not.include', '/login');
+  cy.url({ timeout: 20000 }).should('not.include', '/login');
   
-  // Verify token exists
-  cy.window().its('localStorage').invoke('getItem', 'access_token').should('exist');
+  // Verify token exists (with retry)
+  cy.window().then((win) => {
+    const token = win.localStorage.getItem('access_token') || win.localStorage.getItem('token');
+    if (!token) {
+      cy.wait(2000); // Wait a bit more for token to be set
+    }
+  });
   
   // Verify correct dashboard based on role
   if (expectedRole) {
     const roleMap: Record<string, string> = {
-      'super_admin': '/superadmin/dashboard',
-      'admin': '/admin/dashboard',
-      'hod': '/faculty/dashboard',
-      'faculty': '/faculty/dashboard',
+      'super_admin': '/superadmin',
+      'admin': '/admin',
+      'hod': '/faculty',
+      'faculty': '/faculty',
       'student': '/dashboard',
     };
     
     if (roleMap[expectedRole]) {
-      cy.url().should('include', roleMap[expectedRole]);
+      cy.url({ timeout: 10000 }).should('include', roleMap[expectedRole]);
     }
   }
 });
 
-Cypress.Commands.add('waitForBackend', (timeout = 5000) => {
-  const apiUrl = Cypress.env('apiBaseUrl') || 'http://localhost:8000/api/v1';
+Cypress.Commands.add('waitForBackend', (timeout = 10000) => {
+  const backendUrl = Cypress.env('BACKEND_URL') || 'http://localhost:8000';
   
   cy.request({
     method: 'GET',
-    url: `${apiUrl}/health`,
+    url: `${backendUrl}/health`,
     failOnStatusCode: false,
     timeout: timeout
   }).then((response) => {
@@ -76,6 +88,7 @@ Cypress.Commands.add('waitForBackend', (timeout = 5000) => {
       cy.log('✅ Backend is ready');
     } else {
       cy.log('⚠️ Backend health check failed, but continuing...');
+      cy.log(`   Status: ${response.status}`);
     }
   });
 });

@@ -169,6 +169,7 @@ class SubjectAssignmentBase(BaseModel):
     semester_id: Optional[int] = None
     section: Optional[str] = None
     section_id: Optional[int] = None
+    year: Optional[str] = Field(None, max_length=20, description="Academic year e.g., '1st', '2nd', '3rd', '4th', '5th'")
 
 
 class SubjectAssignmentCreate(SubjectAssignmentBase):
@@ -225,4 +226,90 @@ class PeriodResponse(PeriodBase):
     
     class Config:
         from_attributes = True
+
+
+# ==================== Academic Year Migration Schemas ====================
+
+class AcademicYearMigrationBase(BaseModel):
+    from_academic_year_id: Optional[int] = None
+    to_academic_year_id: Optional[int] = None
+    college_id: int
+    migration_type: str = Field(..., description="year_transition or semester_transition")
+    notes: Optional[str] = None
+
+
+class AcademicYearMigrationCreate(AcademicYearMigrationBase):
+    pass
+
+
+class AcademicYearMigrationResponse(AcademicYearMigrationBase):
+    id: int
+    status: str
+    students_promoted: int
+    sections_archived: int
+    subjects_archived: int
+    assignments_cleared: int
+    initiated_by: Optional[int] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    can_rollback: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class PromotionRule(BaseModel):
+    from_year: str = Field(..., description="e.g., '1st', '2nd', '3rd', '4th'")
+    to_year: str = Field(..., description="e.g., '2nd', '3rd', '4th', '5th'")
+
+
+class PromoteStudentsRequest(BaseModel):
+    academic_year_id: int
+    college_id: Optional[int] = None
+    promotion_rules: List[PromotionRule]
+    auto_approve: bool = True
+
+
+class ArchiveOldYearRequest(BaseModel):
+    from_academic_year_id: int
+    to_academic_year_id: int
+    college_id: int
+    archive_sections: bool = True
+    archive_subjects: bool = True
+    archive_assignments: bool = True
+
+
+class MigrationPreviewResponse(BaseModel):
+    students_to_promote: int
+    sections_to_archive: int
+    subjects_to_archive: int
+    assignments_to_clear: int
+    promotion_breakdown: List[dict] = []
+    sections_breakdown: List[dict] = []
+
+
+# ==================== Bulk Upload Academic Structure ====================
+
+class AcademicStructureUploadRow(BaseModel):
+    subject_name: str
+    subject_code: Optional[str] = None
+    department_code: str
+    year: str = Field(..., description="e.g., '1st', '2nd', '3rd', '4th'")
+    semester: str = Field(..., description="Semester name or number")
+    section: str = Field(..., description="Section name e.g., 'A', 'B', 'C'")
+    faculty_email: Optional[str] = None
+    faculty_staff_id: Optional[str] = None
+    academic_year: Optional[str] = None
+
+
+class AcademicStructureUploadResponse(BaseModel):
+    total_rows: int
+    successful: int
+    failed: int
+    created_subjects: int
+    created_sections: int
+    created_assignments: int
+    errors: List[dict] = []
 

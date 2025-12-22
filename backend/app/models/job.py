@@ -42,6 +42,9 @@ class Job(Base):
     deadline = Column(DateTime(timezone=True), nullable=True)
     posted_date = Column(DateTime(timezone=True), server_default=func.now())
     
+    # Application Link
+    apply_link = Column(String(500), nullable=True)  # External application URL
+    
     # Status
     is_active = Column(Boolean, default=True, nullable=False)
     

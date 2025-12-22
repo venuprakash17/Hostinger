@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { apiClient } from "@/integrations/api/client";
 import { useStudentProfile } from "@/hooks/useStudentProfile";
+import { checkATSCompatibility, checkATSCompatibilityFromText } from "@/lib/resumeitnow/services/atsCheckerService";
+import { handleOpenAIError, handleExtractionError } from "@/lib/resumeitnow/utils/errorHandler";
 
 interface ATSAnalysis {
   overallScore: number;
@@ -51,66 +53,58 @@ export function ATSTab() {
     setIsAnalyzing(true);
 
     try {
-      let resumeText = "";
-      
+      // Use ResumeItNow ATS checker service
       if (file.type === 'text/plain') {
-        resumeText = await file.text();
+        const resumeText = await file.text();
+        setResumeText(resumeText);
+        const result = await checkATSCompatibilityFromText(resumeText, jobDescription || undefined);
+        setAnalysis({
+          overallScore: result.score,
+          categoryScores: {
+            format: result.score * 0.15,
+            keywords: result.score * 0.25,
+            experience: result.score * 0.20,
+            skills: result.score * 0.15,
+            contact: result.score * 0.10,
+            readability: result.score * 0.15,
+          },
+          strengths: result.strengths || [],
+          improvements: result.improvements || [],
+          missingKeywords: result.missingKeywords || [],
+          recommendations: result.suggestions || [],
+        });
+        toast.success("Resume analyzed successfully!");
+      } else if (file.type === 'application/msword') {
+        toast.error("Legacy .doc files are not supported. Please convert to DOCX or PDF.");
+        setIsAnalyzing(false);
+        return;
       } else {
-        try {
-          if (file.type === 'application/pdf') {
-            toast.info("Extracting text from PDF...");
-            const arrayBuffer = await file.arrayBuffer();
-            // Dynamic import to keep bundle light
-            const pdfjs: any = await import('pdfjs-dist');
-            const workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default as string;
-            pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
-            const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
-            const pdf = await loadingTask.promise;
-            let extracted = '';
-            for (let i = 1; i <= pdf.numPages; i++) {
-              const page = await pdf.getPage(i);
-              const content = await page.getTextContent();
-              const strings = (content.items as any[]).map((it: any) => it.str ?? '').join(' ');
-              extracted += strings + '\n';
-            }
-            resumeText = extracted;
-          } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-            toast.info("Extracting text from DOCX...");
-            const { default: mammoth }: any = await import('mammoth/mammoth.browser');
-            const arrayBuffer = await file.arrayBuffer();
-            const { value } = await mammoth.extractRawText({ arrayBuffer });
-            resumeText = value || '';
-          } else if (file.type === 'application/msword') {
-            toast.error("Legacy .doc files are not supported. Please convert to DOCX or PDF.");
-            setIsAnalyzing(false);
-            return;
-          } else {
-            toast.error("Unsupported file format.");
-            setIsAnalyzing(false);
-            return;
-          }
-        } catch (ex) {
-          console.error("Client-side extraction failed:", ex);
-          toast.error("Text could not be extracted from the document.");
-          setIsAnalyzing(false);
-          return;
-        }
-        if (!resumeText.trim()) {
-          toast.error("Text could not be extracted from the document.");
-          setIsAnalyzing(false);
-          return;
-        }
-        toast.success("Document text extracted successfully!");
+        // Use ResumeItNow service for PDF/DOCX
+        toast.info("Extracting text and analyzing with ResumeItNow ATS checker...");
+        const result = await checkATSCompatibility(file, jobDescription || undefined);
+        setAnalysis({
+          overallScore: result.score,
+          categoryScores: {
+            format: result.score * 0.15,
+            keywords: result.score * 0.25,
+            experience: result.score * 0.20,
+            skills: result.score * 0.15,
+            contact: result.score * 0.10,
+            readability: result.score * 0.15,
+          },
+          strengths: result.strengths || [],
+          improvements: result.improvements || [],
+          missingKeywords: result.missingKeywords || [],
+          recommendations: result.suggestions || [],
+        });
+        toast.success("Resume analyzed successfully!");
       }
-
-      // Reflect extracted text in the textarea
-      setResumeText(resumeText);
-
-      // Analyze using backend API
-      await analyzeResumeWithAPI(resumeText, jobDescription);
     } catch (error) {
       console.error("Error analyzing resume:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to analyze resume");
+      const errorInfo = handleExtractionError(error);
+      toast.error(errorInfo.message, {
+        description: errorInfo.actionable,
+      });
     } finally {
       setIsAnalyzing(false);
     }
@@ -118,62 +112,6 @@ export function ATSTab() {
 
   const { profile, education, projects, skills } = useStudentProfile();
   const [resumeText, setResumeText] = useState("");
-
-  const analyzeResumeWithAPI = async (text: string, jobDesc?: string) => {
-    try {
-      // Prepare resume data from profile
-      const resumeData = {
-        personal_info: profile ? {
-          full_name: profile.full_name,
-          email: profile.email,
-        } : undefined,
-        education: education?.map(edu => ({
-          degree: edu.degree,
-          institution: edu.institution,
-          field_of_study: edu.field_of_study,
-          start_date: edu.start_date,
-          end_date: edu.end_date,
-        })),
-        experience: [],
-        projects: projects?.map(proj => ({
-          project_title: proj.title,
-          description: proj.description,
-          technologies_used: proj.technologies,
-        })),
-        skills: skills || [],
-        certifications: [],
-        achievements: [],
-      };
-
-      const result = await apiClient.calculateATSScore({
-        resume_data: resumeData,
-        job_description: jobDesc || undefined,
-      });
-
-      // Convert API response to component format
-      const analysis: ATSAnalysis = {
-        overallScore: result.score,
-        categoryScores: {
-          format: result.breakdown.personal_info || 0,
-          keywords: result.breakdown.keyword_matching || 0,
-          experience: result.breakdown.experience || 0,
-          skills: result.breakdown.skills || 0,
-          contact: result.breakdown.personal_info || 0,
-          readability: result.breakdown.education || 0,
-        },
-        strengths: result.strengths || [],
-        improvements: result.recommendations || [],
-        missingKeywords: result.missing_keywords || [],
-        recommendations: result.recommendations || [],
-      };
-
-      setAnalysis(analysis);
-      toast.success("Resume analyzed successfully!");
-    } catch (error) {
-      console.error("Error analyzing resume:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to analyze resume");
-    }
-  };
 
   const handleTextAnalysis = async (text: string) => {
     if (!text.trim()) {
@@ -184,10 +122,30 @@ export function ATSTab() {
     setIsAnalyzing(true);
 
     try {
-      await analyzeResumeWithAPI(text, jobDescription || undefined);
+      // Use ResumeItNow ATS checker service
+      const result = await checkATSCompatibilityFromText(text, jobDescription || undefined);
+      setAnalysis({
+        overallScore: result.score,
+        categoryScores: {
+          format: result.score * 0.15,
+          keywords: result.score * 0.25,
+          experience: result.score * 0.20,
+          skills: result.score * 0.15,
+          contact: result.score * 0.10,
+          readability: result.score * 0.15,
+        },
+        strengths: result.strengths || [],
+        improvements: result.improvements || [],
+        missingKeywords: result.missingKeywords || [],
+        recommendations: result.suggestions || [],
+      });
+      toast.success("Resume analyzed successfully!");
     } catch (error) {
       console.error("Error analyzing resume:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to analyze resume");
+      const errorInfo = handleOpenAIError(error);
+      toast.error(errorInfo.message, {
+        description: errorInfo.actionable,
+      });
     } finally {
       setIsAnalyzing(false);
     }

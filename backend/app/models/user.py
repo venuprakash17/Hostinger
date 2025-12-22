@@ -13,6 +13,8 @@ class RoleEnum(str, enum.Enum):
     HOD = "hod"  # Head of Department / Department Head
     FACULTY = "faculty"
     STUDENT = "student"
+    INSTITUTION_ADMIN = "institution_admin"  # Institution admin (can do all changes)
+    INSTITUTION_STUDENT = "institution_student"  # Institution student (view-only)
 
 
 class User(Base):
@@ -40,9 +42,11 @@ class UserRole(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     role = Column(Enum(RoleEnum), nullable=False)
     college_id = Column(Integer, ForeignKey("colleges.id", ondelete="SET NULL"), nullable=True, index=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
     user = relationship("User", back_populates="roles")
     college = relationship("College", back_populates="users_with_role")
+    institution = relationship("Institution", back_populates="users_with_role")
 

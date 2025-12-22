@@ -112,11 +112,8 @@ export default function Tests() {
   };
 
   const handleStartTest = (testId: number) => {
-    toast({
-      title: "Test Started",
-      description: "Redirecting to test interface...",
-    });
-    // TODO: Navigate to test taking interface
+    // Navigate to quiz taking interface
+    window.location.href = `/quiz/${testId}`;
   };
 
   const getFilteredTests = (tests: Test[]) => {
@@ -154,8 +151,18 @@ export default function Tests() {
     >
       <CardHeader>
         <div className="flex items-start justify-between">
-          <div className="space-y-1">
-            <CardTitle className="text-xl">{test.title}</CardTitle>
+          <div className="space-y-1 flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <CardTitle className="text-xl">{test.title}</CardTitle>
+              {test.type && (
+                <Badge 
+                  variant={test.type === "SvnaPro" ? "default" : "secondary"}
+                  className={test.type === "SvnaPro" ? "bg-blue-600 hover:bg-blue-700" : "bg-green-600 hover:bg-green-700"}
+                >
+                  {test.type}
+                </Badge>
+              )}
+            </div>
             <CardDescription>{test.subject}</CardDescription>
           </div>
           <Badge className={getStatusColor(test.status)}>
@@ -335,8 +342,18 @@ export default function Tests() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <div className="flex items-center justify-between">
-              <div>
-                <DialogTitle className="text-2xl">{selectedTest?.title}</DialogTitle>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <DialogTitle className="text-2xl">{selectedTest?.title}</DialogTitle>
+                  {selectedTest?.type && (
+                    <Badge 
+                      variant={selectedTest.type === "SvnaPro" ? "default" : "secondary"}
+                      className={selectedTest.type === "SvnaPro" ? "bg-blue-600 hover:bg-blue-700" : "bg-green-600 hover:bg-green-700"}
+                    >
+                      {selectedTest.type}
+                    </Badge>
+                  )}
+                </div>
                 <DialogDescription className="text-lg mt-1">{selectedTest?.subject}</DialogDescription>
               </div>
               <Badge className={getStatusColor(selectedTest?.status || "")}>

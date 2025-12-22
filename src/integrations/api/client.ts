@@ -3,7 +3,24 @@
  * Replaces Appwrite client
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://72.60.101.14:8000/api/v1';
+// Force localhost in development to prevent production URL issues
+const getApiBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  // If in development and URL contains production IP, use localhost
+  if (import.meta.env.DEV && envUrl && envUrl.includes('72.60.101.14')) {
+    console.warn('[API Client] Production URL detected in dev mode, using localhost instead');
+    return 'http://localhost:8000/api/v1';
+  }
+  return envUrl || 'http://localhost:8000/api/v1';
+};
+
+const API_BASE_URL = getApiBaseUrl();
+
+// Log API base URL for debugging (only in development)
+if (import.meta.env.DEV) {
+  console.log('[API Client] API Base URL:', API_BASE_URL);
+  console.log('[API Client] Environment variable:', import.meta.env.VITE_API_BASE_URL);
+}
 
 // Token management
 const getToken = (): string | null => {
@@ -140,9 +157,46 @@ class APIClient {
 
       // Parse successful response
       try {
-        return responseText ? JSON.parse(responseText) : ({} as T);
+        if (!responseText || responseText.trim() === '') {
+          // If response is empty, check if we expect a list
+          // Only treat as list if it's a query endpoint (has ?) or ends with the base path
+          const isListEndpoint = (endpoint.includes('/quizzes?') || endpoint.includes('/coding-problems?') || endpoint.includes('/global-content?') || endpoint.includes('/company-training?')) ||
+                                (endpoint === '/quizzes' || endpoint === '/coding-problems' || endpoint === '/global-content') ||
+                                (endpoint.includes('/quizzes/') && !endpoint.match(/\/quizzes\/\d+$/)) ||
+                                (endpoint.includes('/coding-problems/') && !endpoint.match(/\/coding-problems\/\d+$/)) ||
+                                (endpoint.includes('/company-training/companies?') || endpoint.includes('/company-training/roles?') || 
+                                 endpoint.includes('/company-training/practice-sections?') || endpoint.includes('/company-training/rounds?') ||
+                                 endpoint.includes('/company-training/round-contents?'));
+          if (isListEndpoint) {
+            return [] as T;
+          }
+          return {} as T;
+        }
+        const parsed = JSON.parse(responseText);
+        // Only treat as list if it's a query endpoint or base path, not a single resource
+        const isListEndpoint = (endpoint.includes('/quizzes?') || endpoint.includes('/coding-problems?') || endpoint.includes('/global-content?') || endpoint.includes('/company-training?')) ||
+                                (endpoint === '/quizzes' || endpoint === '/coding-problems' || endpoint === '/global-content') ||
+                                (endpoint.includes('/quizzes/') && !endpoint.match(/\/quizzes\/\d+$/)) ||
+                                (endpoint.includes('/coding-problems/') && !endpoint.match(/\/coding-problems\/\d+$/)) ||
+                                (endpoint.includes('/company-training/companies?') || endpoint.includes('/company-training/roles?') || 
+                                 endpoint.includes('/company-training/practice-sections?') || endpoint.includes('/company-training/rounds?') ||
+                                 endpoint.includes('/company-training/round-contents?'));
+        if (isListEndpoint) {
+          return (Array.isArray(parsed) ? parsed : []) as unknown as T;
+        }
+        return parsed;
       } catch (parseError) {
-        // If response is empty or not JSON, return empty object
+        // If response is empty or not JSON, check if we expect a list
+        const isListEndpoint = (endpoint.includes('/quizzes?') || endpoint.includes('/coding-problems?') || endpoint.includes('/global-content?') || endpoint.includes('/company-training?')) ||
+                                (endpoint === '/quizzes' || endpoint === '/coding-problems' || endpoint === '/global-content') ||
+                                (endpoint.includes('/quizzes/') && !endpoint.match(/\/quizzes\/\d+$/)) ||
+                                (endpoint.includes('/coding-problems/') && !endpoint.match(/\/coding-problems\/\d+$/)) ||
+                                (endpoint.includes('/company-training/companies?') || endpoint.includes('/company-training/roles?') || 
+                                 endpoint.includes('/company-training/practice-sections?') || endpoint.includes('/company-training/rounds?') ||
+                                 endpoint.includes('/company-training/round-contents?'));
+        if (isListEndpoint) {
+          return [] as T;
+        }
         return {} as T;
       }
     } catch (error: any) {
@@ -229,39 +283,11 @@ class APIClient {
     const url = `${this.baseURL}/auth/login`;
     console.log('[API Client] Starting login request to:', url);
     
-    // First, verify backend is reachable with a quick health check
-    try {
-      // Health endpoint is at /api/v1/health
-      const healthUrl = `${this.baseURL}/health`;
-      const healthController = new AbortController();
-      const healthTimeout = setTimeout(() => healthController.abort(), 3000);
-      
-      const healthCheck = await fetch(healthUrl, { 
-        method: 'GET',
-        signal: healthController.signal
-      });
-      clearTimeout(healthTimeout);
-      
-      if (!healthCheck.ok) {
-        console.warn('[API Client] Health check returned non-OK status:', healthCheck.status);
-      } else {
-        console.log('[API Client] Backend health check passed');
-      }
-    } catch (healthError: any) {
-      if (healthError.name === 'AbortError') {
-        console.error('[API Client] Health check timed out - backend may be slow or not responding');
-      } else {
-        console.error('[API Client] Health check failed - backend may not be running:', healthError);
-      }
-      // Don't throw here - let the actual login request try anyway
-      // The login request will have its own timeout and error handling
-    }
-    
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       console.error('[API Client] Login timeout - aborting request');
       controller.abort();
-    }, 15000); // 15 second timeout for login (increased from 8s)
+    }, 10000); // 10 second timeout for login
     
     try {
       console.log('[API Client] Making fetch request...');
@@ -323,18 +349,22 @@ class APIClient {
       
       console.error('[API Client] Login error:', error.name, error.message);
       
-      if (error.name === 'AbortError') {
-        console.error('[API Client] Request was aborted (timeout)');
-        throw new Error('Login request timed out. Please check your connection.');
-      }
-      
+      // Check for connection errors first (these happen immediately)
       if (error.message?.includes('Failed to fetch') || 
           error.message?.includes('ERR_CONNECTION_REFUSED') ||
           error.message?.includes('ERR_NETWORK_CHANGED') ||
           error.message?.includes('NetworkError') ||
-          error.message?.includes('Network request failed')) {
-        console.error('[API Client] Network error detected');
-        throw new Error('Failed to connect to server. Please check your connection.');
+          error.message?.includes('Network request failed') ||
+          error.message?.includes('load failed') ||
+          error.cause?.code === 'ECONNREFUSED') {
+        console.error('[API Client] Network error detected - backend may not be running');
+        throw new Error('Backend server is not running. Please start the backend server on port 8000.');
+      }
+      
+      // Check for timeout/abort errors
+      if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+        console.error('[API Client] Request was aborted (timeout)');
+        throw new Error('Login request timed out. The backend server may be slow or not responding. Please check if the server is running on port 8000.');
       }
       
       throw error;
@@ -615,6 +645,54 @@ class APIClient {
     return this.request('/colleges');
   }
 
+  // Institution methods
+  async listInstitutions() {
+    return this.request('/institutions');
+  }
+
+  async getInstitution(institutionId: number) {
+    return this.request(`/institutions/${institutionId}`);
+  }
+
+  async createInstitution(data: {
+    name: string;
+    code: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+  }) {
+    return this.request('/institutions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateInstitution(institutionId: number, data: {
+    name?: string;
+    code?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+    is_active?: string;
+  }) {
+    return this.request(`/institutions/${institutionId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteInstitution(institutionId: number) {
+    return this.request(`/institutions/${institutionId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getInstitutionStats(institutionId: number) {
+    return this.request(`/institutions/${institutionId}/stats`);
+  }
+
   async bulkUploadJobs(file: File) {
     const formData = new FormData();
     formData.append('file', file);
@@ -666,112 +744,6 @@ class APIClient {
     window.URL.revokeObjectURL(downloadUrl);
     
     return { success: true };
-  }
-
-  // Certificates
-  async uploadCertificate(
-    file: File,
-    certificateType: '10th' | 'intermediate' | 'college' | 'other',
-    certificateName: string,
-    issuingAuthority?: string,
-    issueDate?: string,
-    description?: string,
-    gradePercentage?: string
-  ) {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('certificate_type', certificateType);
-    formData.append('certificate_name', certificateName);
-    if (issuingAuthority) formData.append('issuing_authority', issuingAuthority);
-    if (issueDate) formData.append('issue_date', issueDate);
-    if (description) formData.append('description', description);
-    if (gradePercentage) formData.append('grade_percentage', gradePercentage);
-
-    // Use direct fetch for FormData to avoid Content-Type header issues
-    const url = `${this.baseURL}/certificates`;
-    const token = getToken();
-    
-    const headers: HeadersInit = {};
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-    // Don't set Content-Type - let browser set it with boundary for multipart/form-data
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: formData,
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      let errorMessage = response.statusText;
-      try {
-        const errorData = JSON.parse(errorText);
-        errorMessage = errorData.detail || errorData.message || errorMessage;
-      } catch {
-        errorMessage = errorText || errorMessage;
-      }
-      throw new Error(errorMessage);
-    }
-
-    return response.json();
-  }
-
-  async getMyCertificates(filters?: {
-    certificate_type?: '10th' | 'intermediate' | 'college' | 'other';
-    status?: 'pending' | 'approved' | 'rejected';
-  }) {
-    const params = new URLSearchParams();
-    if (filters?.certificate_type) params.append('certificate_type', filters.certificate_type);
-    if (filters?.status) params.append('status_filter', filters.status);
-    const queryString = params.toString();
-    return this.request(`/certificates/my${queryString ? `?${queryString}` : ''}`);
-  }
-
-  async getPendingCertificates(filters?: {
-    college_id?: number;
-    certificate_type?: '10th' | 'intermediate' | 'college' | 'other';
-  }) {
-    const params = new URLSearchParams();
-    if (filters?.college_id) params.append('college_id', filters.college_id.toString());
-    if (filters?.certificate_type) params.append('certificate_type', filters.certificate_type);
-    const queryString = params.toString();
-    return this.request(`/certificates/pending${queryString ? `?${queryString}` : ''}`);
-  }
-
-  async reviewCertificate(certificateId: number, status: 'approved' | 'rejected', reviewNotes?: string) {
-    return this.request(`/certificates/${certificateId}/review`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        status,
-        review_notes: reviewNotes
-      })
-    });
-  }
-
-  async getCertificate(certificateId: number) {
-    return this.request(`/certificates/${certificateId}`);
-  }
-
-  async updateCertificate(certificateId: number, data: {
-    certificate_name?: string;
-    issuing_authority?: string;
-    issue_date?: string;
-    description?: string;
-    grade_percentage?: string;
-  }) {
-    return this.request(`/certificates/${certificateId}`, {
-      method: 'PUT',
-      body: JSON.stringify(data)
-    });
-  }
-
-  async deleteCertificate(certificateId: number) {
-    return this.request(`/certificates/${certificateId}`, {
-      method: 'DELETE'
-    });
   }
 
   // Resume - ATS Score & Cover Letter
@@ -1374,6 +1346,136 @@ class APIClient {
     return this.request(`/academic/subject-assignments${queryString ? `?${queryString}` : ''}`);
   }
 
+  // Auto-populate sections from student data
+  async autoPopulateSections(collegeId?: number) {
+    const params = new URLSearchParams();
+    if (collegeId) params.append('college_id', collegeId.toString());
+    const queryString = params.toString();
+    return this.request(`/academic/sections/auto-populate${queryString ? `?${queryString}` : ''}`, {
+      method: 'POST'
+    });
+  }
+
+  // Assign sections to faculty
+  async assignSectionsToFaculty(facultyId: number, sectionIds: number[]) {
+    return this.request('/academic/faculty-sections/assign', {
+      method: 'POST',
+      body: JSON.stringify({ faculty_id: facultyId, section_ids: sectionIds })
+    });
+  }
+
+  // Get faculty assigned students
+  async getFacultyAssignedStudents(facultyId: number) {
+    return this.request(`/academic/faculty-sections/${facultyId}/students`);
+  }
+
+  // Get student progress
+  async getStudentProgress(facultyId: number, studentId: number) {
+    return this.request(`/academic/faculty-sections/${facultyId}/students/${studentId}/progress`);
+  }
+
+  // Academic Year Migration
+  async previewMigration(fromAcademicYearId: number, toAcademicYearId: number, collegeId: number) {
+    return this.request(`/academic/migrations/preview?from_academic_year_id=${fromAcademicYearId}&to_academic_year_id=${toAcademicYearId}&college_id=${collegeId}`);
+  }
+
+  async promoteStudents(data: {
+    academic_year_id: number;
+    college_id?: number;
+    promotion_rules: Array<{ from_year: string; to_year: string }>;
+    auto_approve?: boolean;
+  }) {
+    return this.request('/academic/migrations/promote-students', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async archiveOldAcademicYear(data: {
+    from_academic_year_id: number;
+    to_academic_year_id: number;
+    college_id: number;
+    archive_sections?: boolean;
+    archive_subjects?: boolean;
+    archive_assignments?: boolean;
+  }) {
+    return this.request('/academic/migrations/archive-old-year', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getMigrations(collegeId?: number, status?: string) {
+    const params = new URLSearchParams();
+    if (collegeId) params.append('college_id', collegeId.toString());
+    if (status) params.append('status_filter', status);
+    return this.request(`/academic/migrations${params.toString() ? `?${params.toString()}` : ''}`);
+  }
+
+  async getMigration(migrationId: number) {
+    return this.request(`/academic/migrations/${migrationId}`);
+  }
+
+  async bulkUploadAcademicStructure(
+    file: File,
+    academicYearId?: number,
+    collegeId?: number,
+    createSubjectsIfMissing?: boolean,
+    createSectionsIfMissing?: boolean
+  ) {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (academicYearId) formData.append('academic_year_id', academicYearId.toString());
+    if (collegeId) formData.append('college_id', collegeId.toString());
+    if (createSubjectsIfMissing !== undefined) formData.append('create_subjects_if_missing', createSubjectsIfMissing.toString());
+    if (createSectionsIfMissing !== undefined) formData.append('create_sections_if_missing', createSectionsIfMissing.toString());
+
+    return this.request('/bulk-upload/academic-structure', {
+      method: 'POST',
+      headers: {}, // Let browser set Content-Type with boundary for FormData
+      body: formData,
+    });
+  }
+
+  async autoDistributeStudents(data: {
+    college_id?: number;
+    department_id?: number;
+    year?: string;
+    max_students_per_section?: number;
+  }) {
+    return this.request('/academic/sections/auto-distribute-students', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Reassign faculty data to another faculty
+  async reassignFacultyData(data: {
+    from_faculty_id: number;
+    to_faculty_id: number;
+    reassign_coding_problems?: boolean;
+    reassign_quizzes?: boolean;
+    reassign_labs?: boolean;
+    reassign_lab_problems?: boolean;
+    reassign_lab_assignments?: boolean;
+  }) {
+    return this.request('/users/reassign-faculty-data', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Bulk upload subjects
+  async bulkUploadSubjects(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.request('/bulk-upload/subjects', {
+      method: 'POST',
+      body: formData,
+      headers: {} // Let browser set Content-Type for FormData
+    });
+  }
+
   async createSubjectAssignment(data: {
     faculty_id: number;
     subject_id: number;
@@ -1421,6 +1523,30 @@ class APIClient {
 
   async getQuiz(quizId: number) {
     return this.request(`/global-content/quizzes/${quizId}`);
+  }
+
+  // Quiz Attempts
+  async startQuizAttempt(quizId: number) {
+    return this.request(`/global-content/quizzes/${quizId}/attempt`, {
+      method: 'POST'
+    });
+  }
+
+  async updateQuizAttempt(attemptId: number, data: { answers?: any[] }) {
+    return this.request(`/global-content/quiz-attempts/${attemptId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async submitQuiz(attemptId: number) {
+    return this.request(`/global-content/quiz-attempts/${attemptId}/submit`, {
+      method: 'POST'
+    });
+  }
+
+  async getQuizAttempt(attemptId: number) {
+    return this.request(`/global-content/quiz-attempts/${attemptId}`);
   }
 
   async createQuiz(data: {
@@ -1473,6 +1599,73 @@ class APIClient {
     return this.request(`/global-content/quizzes/${quizId}`, {
       method: 'DELETE'
     });
+  }
+
+  async bulkUploadQuestions(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.request('/bulk-upload/questions', {
+      method: 'POST',
+      body: formData
+    });
+  }
+
+  // Global Content - Coding Problems (for super admin global content management)
+  async listGlobalCodingProblems(filters?: {
+    difficulty?: string;
+    is_active?: boolean;
+    scope_type?: 'svnapro' | 'college';
+  }) {
+    const params = new URLSearchParams();
+    if (filters?.difficulty) params.append('difficulty', filters.difficulty);
+    if (filters?.is_active !== undefined) params.append('is_active', filters.is_active.toString());
+    if (filters?.scope_type) params.append('scope_type', filters.scope_type);
+    const queryString = params.toString();
+    return this.request(`/global-content/coding-problems${queryString ? `?${queryString}` : ''}`);
+  }
+
+  async downloadQuestionTemplate(format: 'xlsx' | 'csv' | 'json' = 'xlsx') {
+    const token = getToken();
+    const url = `${this.baseURL}/bulk-upload/templates/questions?format=${format}`;
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      credentials: 'include',
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorMessage = response.statusText;
+      try {
+        const errorData = JSON.parse(errorText);
+        errorMessage = errorData.detail || errorData.message || errorMessage;
+      } catch {
+        errorMessage = errorText || errorMessage;
+      }
+      throw new Error(errorMessage);
+    }
+    
+    // Get the blob from response
+    const blob = await response.blob();
+    
+    // Determine file extension
+    const extension = format === 'json' ? 'json' : format === 'csv' ? 'csv' : 'xlsx';
+    const filename = `question_upload_template.${extension}`;
+    
+    // Create a download link
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(downloadUrl);
+    
+    return { success: true };
   }
 
   // Coding Problems - Super Admin only, year-based visibility
@@ -1557,6 +1750,122 @@ class APIClient {
       method: 'POST',
       body: JSON.stringify(data),
     });
+  }
+
+  // Comprehensive Analytics API Methods
+  async trackActivity(data: {
+    activity_type: string;
+    activity_category?: string;
+    entity_type?: string;
+    entity_id?: number;
+    entity_name?: string;
+    metadata?: any;
+    duration_seconds?: number;
+    active_time_seconds?: number;
+    status?: string;
+    result?: any;
+    session_id?: string;
+    page_url?: string;
+  }) {
+    return this.request('/analytics/track/activity', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async startSession(data: {
+    session_id: string;
+    user_agent?: string;
+    ip_address?: string;
+  }) {
+    return this.request('/analytics/track/session/start', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateSession(data: {
+    session_id: string;
+    active_time_seconds: number;
+    idle_time_seconds: number;
+    page_url?: string;
+    action_count?: number;
+  }) {
+    return this.request('/analytics/track/session/update', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async endSession(sessionId: string) {
+    return this.request(`/analytics/track/session/end?session_id=${sessionId}`, {
+      method: 'POST',
+    });
+  }
+
+  async getMyProgress() {
+    return this.request('/analytics/student/my-progress');
+  }
+
+  async getStudentDetailedAnalytics(studentId: number, startDate?: string, endDate?: string) {
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    return this.request(`/analytics/student/${studentId}/detailed${params.toString() ? `?${params.toString()}` : ''}`);
+  }
+
+  async getFeatureAnalytics(featureName: string, startDate?: string, endDate?: string) {
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    return this.request(`/analytics/feature/${featureName}${params.toString() ? `?${params.toString()}` : ''}`);
+  }
+
+  async getComprehensiveDashboard(startDate?: string, endDate?: string) {
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    return this.request(`/analytics/dashboard/comprehensive${params.toString() ? `?${params.toString()}` : ''}`);
+  }
+
+  // Drill-Down Analytics API Methods
+  async getAdminOverview(collegeId?: number, startDate?: string, endDate?: string) {
+    const params = new URLSearchParams();
+    if (collegeId) params.append('college_id', collegeId.toString());
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    return this.request(`/analytics/drilldown/admin/overview${params.toString() ? `?${params.toString()}` : ''}`);
+  }
+
+  async getDepartmentDrilldown(department: string, collegeId?: number, startDate?: string, endDate?: string) {
+    const params = new URLSearchParams();
+    if (collegeId) params.append('college_id', collegeId.toString());
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    return this.request(`/analytics/drilldown/admin/department/${encodeURIComponent(department)}${params.toString() ? `?${params.toString()}` : ''}`);
+  }
+
+  async getYearDrilldown(year: string, department?: string, collegeId?: number, startDate?: string, endDate?: string) {
+    const params = new URLSearchParams();
+    if (department) params.append('department', department);
+    if (collegeId) params.append('college_id', collegeId.toString());
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    return this.request(`/analytics/drilldown/admin/year/${encodeURIComponent(year)}${params.toString() ? `?${params.toString()}` : ''}`);
+  }
+
+  async getSectionDrilldown(sectionId: number, startDate?: string, endDate?: string) {
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    return this.request(`/analytics/drilldown/admin/section/${sectionId}${params.toString() ? `?${params.toString()}` : ''}`);
+  }
+
+  async getStudentDrilldown(studentId: number, startDate?: string, endDate?: string) {
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    return this.request(`/analytics/drilldown/admin/student/${studentId}${params.toString() ? `?${params.toString()}` : ''}`);
   }
 
   async getSubmissionDetails(problemId: number, submissionId: number) {
@@ -1898,7 +2207,7 @@ class APIClient {
     return this.request(`/coding-labs/submissions/${submissionId}`);
   }
 
-  async executeCode(data: { code: string; language: string; input_data?: string; time_limit_seconds?: number; memory_limit_mb?: number }) {
+  async executeLabCode(data: { code: string; language: string; input_data?: string; time_limit_seconds?: number; memory_limit_mb?: number }) {
     return this.request('/coding-labs/execute', {
       method: 'POST',
       body: JSON.stringify(data)
@@ -1910,6 +2219,377 @@ class APIClient {
       method: 'POST',
       body: JSON.stringify({ code, language })
     });
+  }
+
+  // ========== Company Training API Methods ==========
+  
+  // Companies
+  async listCompanies(isActive?: boolean) {
+    const params = new URLSearchParams();
+    if (isActive !== undefined) params.append('is_active', isActive.toString());
+    return this.request(`/company-training/companies?${params.toString()}`);
+  }
+
+  async getCompany(companyId: number) {
+    return this.request(`/company-training/companies/${companyId}`);
+  }
+
+  async createCompany(data: {
+    name: string;
+    logo_url?: string;
+    description?: string;
+    website?: string;
+    is_active?: boolean;
+  }) {
+    return this.request('/company-training/companies', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateCompany(companyId: number, data: {
+    name?: string;
+    logo_url?: string;
+    description?: string;
+    website?: string;
+    is_active?: boolean;
+  }) {
+    return this.request(`/company-training/companies/${companyId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deleteCompany(companyId: number) {
+    return this.request(`/company-training/companies/${companyId}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Company Roles
+  async listRoles(companyId?: number, isActive?: boolean) {
+    const params = new URLSearchParams();
+    if (companyId) params.append('company_id', companyId.toString());
+    if (isActive !== undefined) params.append('is_active', isActive.toString());
+    return this.request(`/company-training/roles?${params.toString()}`);
+  }
+
+  async getRole(roleId: number) {
+    return this.request(`/company-training/roles/${roleId}`);
+  }
+
+  async createRole(data: {
+    company_id: number;
+    role_name: string;
+    description?: string;
+    difficulty?: string;
+    scope_type?: string;
+    target_departments?: string[];
+    target_years?: string[];
+    target_sections?: string[];
+    is_active?: boolean;
+  }) {
+    return this.request('/company-training/roles', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateRole(roleId: number, data: {
+    company_id?: number;
+    role_name?: string;
+    description?: string;
+    difficulty?: string;
+    scope_type?: string;
+    target_departments?: string[];
+    target_years?: string[];
+    target_sections?: string[];
+    is_active?: boolean;
+  }) {
+    return this.request(`/company-training/roles/${roleId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deleteRole(roleId: number) {
+    return this.request(`/company-training/roles/${roleId}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Practice Sections
+  async listPracticeSections(roleId?: number, isActive?: boolean) {
+    const params = new URLSearchParams();
+    if (roleId) params.append('role_id', roleId.toString());
+    if (isActive !== undefined) params.append('is_active', isActive.toString());
+    return this.request(`/company-training/practice-sections?${params.toString()}`);
+  }
+
+  async getPracticeSection(sectionId: number) {
+    return this.request(`/company-training/practice-sections/${sectionId}`);
+  }
+
+  async createPracticeSection(data: {
+    role_id: number;
+    section_name: string;
+    description?: string;
+    order_index?: number;
+    is_active?: boolean;
+  }) {
+    return this.request('/company-training/practice-sections', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updatePracticeSection(sectionId: number, data: {
+    role_id?: number;
+    section_name?: string;
+    description?: string;
+    order_index?: number;
+    is_active?: boolean;
+  }) {
+    return this.request(`/company-training/practice-sections/${sectionId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deletePracticeSection(sectionId: number) {
+    return this.request(`/company-training/practice-sections/${sectionId}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Rounds
+  async listRounds(practiceSectionId?: number, roundType?: string, isActive?: boolean) {
+    const params = new URLSearchParams();
+    if (practiceSectionId) params.append('practice_section_id', practiceSectionId.toString());
+    if (roundType) params.append('round_type', roundType);
+    if (isActive !== undefined) params.append('is_active', isActive.toString());
+    return this.request(`/company-training/rounds?${params.toString()}`);
+  }
+
+  async getRound(roundId: number) {
+    return this.request(`/company-training/rounds/${roundId}`);
+  }
+
+  async createRound(data: {
+    practice_section_id: number;
+    round_type: 'quiz' | 'coding' | 'gd' | 'interview';
+    round_name: string;
+    description?: string;
+    order_index?: number;
+    is_active?: boolean;
+    quiz_id?: number;
+    coding_problem_id?: number;
+  }) {
+    return this.request('/company-training/rounds', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateRound(roundId: number, data: {
+    practice_section_id?: number;
+    round_type?: 'quiz' | 'coding' | 'gd' | 'interview';
+    round_name?: string;
+    description?: string;
+    order_index?: number;
+    is_active?: boolean;
+    quiz_id?: number;
+    coding_problem_id?: number;
+  }) {
+    return this.request(`/company-training/rounds/${roundId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deleteRound(roundId: number) {
+    return this.request(`/company-training/rounds/${roundId}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Round Contents
+  async listRoundContents(roundId?: number, isActive?: boolean) {
+    const params = new URLSearchParams();
+    if (roundId) params.append('round_id', roundId.toString());
+    if (isActive !== undefined) params.append('is_active', isActive.toString());
+    return this.request(`/company-training/round-contents?${params.toString()}`);
+  }
+
+  async getRoundContent(contentId: number) {
+    return this.request(`/company-training/round-contents/${contentId}`);
+  }
+
+  async createRoundContent(data: {
+    round_id: number;
+    gd_topic?: string;
+    gd_description?: string;
+    key_points?: string[];
+    best_points?: string[];
+    dos_and_donts?: { dos?: string[]; donts?: string[] };
+    question?: string;
+    expected_answer?: string;
+    question_type?: string;
+    tips?: string[];
+    quiz_question?: string;
+    quiz_options?: string[];
+    correct_answer?: string;
+    coding_title?: string;
+    coding_description?: string;
+    coding_difficulty?: string;
+    order_index?: number;
+    is_active?: boolean;
+  }) {
+    return this.request('/company-training/round-contents', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateRoundContent(contentId: number, data: {
+    round_id?: number;
+    gd_topic?: string;
+    gd_description?: string;
+    key_points?: string[];
+    best_points?: string[];
+    dos_and_donts?: { dos?: string[]; donts?: string[] };
+    question?: string;
+    expected_answer?: string;
+    question_type?: string;
+    tips?: string[];
+    quiz_question?: string;
+    quiz_options?: string[];
+    correct_answer?: string;
+    coding_title?: string;
+    coding_description?: string;
+    coding_difficulty?: string;
+    order_index?: number;
+    is_active?: boolean;
+  }) {
+    return this.request(`/company-training/round-contents/${contentId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deleteRoundContent(contentId: number) {
+    return this.request(`/company-training/round-contents/${contentId}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Bulk upload for company training round contents
+  async bulkUploadCompanyTrainingQuizQuestions(roundId: number, file: File): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const url = `${this.baseURL}/bulk-upload/company-training/round-contents/quiz?round_id=${roundId}`;
+    const token = getToken();
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      headers,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      throw new Error(`API error: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async bulkUploadCompanyTrainingCodingProblems(roundId: number, file: File): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const url = `${this.baseURL}/bulk-upload/company-training/round-contents/coding?round_id=${roundId}`;
+    const token = getToken();
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      headers,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      throw new Error(`API error: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  // ==================== Resume Analytics API ====================
+
+  async trackResumeAnalytics(data: {
+    activity_type: string;
+    ats_score?: number;
+    previous_ats_score?: number;
+    target_role?: string;
+    company_name?: string;
+    job_description_provided?: boolean;
+    duration_seconds?: number;
+    tokens_used?: number;
+    estimated_cost?: number;
+    recommendations?: string[];
+    missing_keywords?: string[];
+    strengths?: string[];
+    improvements?: string[];
+    status?: string;
+    error_message?: string;
+    metadata?: Record<string, any>;
+  }) {
+    return this.request('/resume/analytics/track', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async getResumeAnalyticsOverview(params?: {
+    college_id?: number;
+    department?: string;
+    section_id?: number;
+  }) {
+    const queryParams = new URLSearchParams();
+    if (params?.college_id) queryParams.append('college_id', params.college_id.toString());
+    if (params?.department) queryParams.append('department', params.department);
+    if (params?.section_id) queryParams.append('section_id', params.section_id.toString());
+    return this.request(`/resume/analytics/overview${queryParams.toString() ? `?${queryParams.toString()}` : ''}`);
+  }
+
+  async getStudentsResumeAnalytics(params?: {
+    college_id?: number;
+    department?: string;
+    section_id?: number;
+    needs_optimization?: boolean;
+    min_ats_score?: number;
+    max_ats_score?: number;
+  }) {
+    const queryParams = new URLSearchParams();
+    if (params?.college_id) queryParams.append('college_id', params.college_id.toString());
+    if (params?.department) queryParams.append('department', params.department);
+    if (params?.section_id) queryParams.append('section_id', params.section_id.toString());
+    if (params?.needs_optimization !== undefined) queryParams.append('needs_optimization', params.needs_optimization.toString());
+    if (params?.min_ats_score !== undefined) queryParams.append('min_ats_score', params.min_ats_score.toString());
+    if (params?.max_ats_score !== undefined) queryParams.append('max_ats_score', params.max_ats_score.toString());
+    return this.request(`/resume/analytics/students${queryParams.toString() ? `?${queryParams.toString()}` : ''}`);
+  }
+
+  async getStudentResumeAnalyticsDetailed(studentId: number, params?: {
+    start_date?: string;
+    end_date?: string;
+  }) {
+    const queryParams = new URLSearchParams();
+    if (params?.start_date) queryParams.append('start_date', params.start_date);
+    if (params?.end_date) queryParams.append('end_date', params.end_date);
+    return this.request(`/resume/analytics/students/${studentId}/detailed${queryParams.toString() ? `?${queryParams.toString()}` : ''}`);
   }
 }
 

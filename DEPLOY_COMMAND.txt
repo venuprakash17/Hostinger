@@ -1,0 +1,1 @@
+VITE_API_BASE_URL="http://72.60.101.14:8000/api/v1" npm run build && scp -r dist/* root@72.60.101.14:/root/elevate-edu/dist/ && scp -r backend root@72.60.101.14:/root/elevate-edu/ && ssh root@72.60.101.14 "cd /root/elevate-edu && docker-compose up -d --build" && echo '✅ Deployment complete! Visit: http://72.60.101.14'"

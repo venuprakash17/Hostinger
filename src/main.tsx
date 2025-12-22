@@ -1,9 +1,32 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+import { logConfigWarning } from "@/lib/resumeitnow/utils/envCheck";
+
+// Suppress non-critical connection errors (e.g., ping requests from dev tools)
+if (typeof window !== 'undefined') {
+  const originalError = console.error;
+  console.error = (...args: any[]) => {
+    const message = args.join(' ');
+    // Suppress ERR_CONNECTION_REFUSED for ping/health check requests
+    if (
+      message.includes('ERR_CONNECTION_REFUSED') &&
+      (message.includes('ping') || message.includes('localhost:8081/') || message.includes('waitForSuccessfulPing'))
+    ) {
+      // Silently ignore these non-critical errors
+      return;
+    }
+    originalError.apply(console, args);
+  };
+}
 
 console.log("🚀 Main.tsx is loading...");
 console.log("Root element:", document.getElementById("root"));
+
+// Check ResumeItNow configuration on startup
+if (typeof window !== 'undefined') {
+  logConfigWarning();
+}
 
 try {
   const rootElement = document.getElementById("root");

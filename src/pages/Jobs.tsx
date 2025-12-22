@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Briefcase, MapPin, Calendar, IndianRupee, Loader2 } from "lucide-react";
+import { Briefcase, MapPin, Calendar, IndianRupee, Loader2, Users, CheckCircle2, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { JobFilters } from "@/components/filters/JobFilters";
 
 interface Job {
   id: number;
+  title: string;
   company: string;
   role: string;
   location: string;
@@ -19,9 +20,14 @@ interface Job {
   deadline: string;
   description: string;
   requirements: string[];
-  selection_rounds: string[];
+  rounds: string[];
+  selection_rounds?: string[];
+  apply_link: string | null;
   is_active: boolean;
   status?: string;
+  logo?: string;
+  totalApplicants?: number;
+  shortlisted?: number;
 }
 
 export default function Jobs() {
@@ -53,6 +59,8 @@ export default function Jobs() {
         logo: job.company?.charAt(0)?.toUpperCase() || "J",
         totalApplicants: job.total_applicants || 0,
         shortlisted: job.shortlisted || 0,
+        // Ensure rounds is available (could be rounds or selection_rounds)
+        rounds: job.rounds || job.selection_rounds || [],
       }));
       
       setJobs(jobsWithStatus);
@@ -69,11 +77,12 @@ export default function Jobs() {
   };
 
   const filteredJobs = jobs.filter(job => {
+    const searchLower = searchQuery.toLowerCase();
     const matchesSearch = searchQuery === "" ||
-      job.company?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      job.role?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      job.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      job.description?.toLowerCase().includes(searchQuery.toLowerCase());
+      job.company?.toLowerCase().includes(searchLower) ||
+      job.role?.toLowerCase().includes(searchLower) ||
+      job.title?.toLowerCase().includes(searchLower) ||
+      (job.description && job.description.toLowerCase().includes(searchLower));
     
     const matchesType = jobType === "all" || job.job_type === jobType;
     
@@ -97,6 +106,19 @@ export default function Jobs() {
   };
 
   const handleApply = async (jobId: number) => {
+    const job = jobs.find(j => j.id === jobId);
+    
+    // If job has external apply link, open it
+    if (job?.apply_link) {
+      window.open(job.apply_link, '_blank', 'noopener,noreferrer');
+      toast({
+        title: "Opening Application",
+        description: "Redirecting to external application page...",
+      });
+      return;
+    }
+
+    // Otherwise, apply through platform
     try {
       setApplying(jobId);
       await apiClient.applyForJob(jobId);
@@ -166,54 +188,81 @@ export default function Jobs() {
           ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {filteredJobs.map((job) => (
-              <Card key={job.id} className="shadow-card hover:shadow-elevated transition-shadow cursor-pointer"
+              <Card key={job.id} className="shadow-card hover:shadow-elevated transition-all duration-200 cursor-pointer border-2 hover:border-primary/20"
                     onClick={() => setSelectedJob(job)}>
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="h-12 w-12 rounded-lg bg-gradient-primary flex items-center justify-center">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className="h-14 w-14 rounded-lg bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center flex-shrink-0 shadow-md">
                         <span className="text-white font-bold text-xl">{job.logo}</span>
                       </div>
-                      <div>
-                        <CardTitle className="text-lg">{job.company}</CardTitle>
-                        <CardDescription>{job.role}</CardDescription>
+                      <div className="flex-1 min-w-0">
+                        <CardTitle className="text-lg font-semibold line-clamp-1">{job.company}</CardTitle>
+                        <CardDescription className="line-clamp-1">{job.role}</CardDescription>
+                        {job.title && job.title !== job.role && (
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{job.title}</p>
+                        )}
                       </div>
                     </div>
                   </div>
-                  {job.totalApplicants && (
-                    <p className="text-xs text-muted-foreground mt-2">
-                      {job.totalApplicants} applicants • {job.shortlisted} shortlisted
-                    </p>
+                  {job.totalApplicants !== undefined && (
+                    <div className="flex items-center gap-3 mt-3 pt-3 border-t">
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Users className="h-3 w-3" />
+                        <span>{job.totalApplicants} applied</span>
+                      </div>
+                      {job.shortlisted !== undefined && job.shortlisted > 0 && (
+                        <div className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                          <CheckCircle2 className="h-3 w-3" />
+                          <span>{job.shortlisted} shortlisted</span>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2 text-sm">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <MapPin className="h-4 w-4" />
-                      {job.location}
-                    </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <IndianRupee className="h-4 w-4" />
-                      {job.ctc}
-                    </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Calendar className="h-4 w-4" />
-                      Deadline: {new Date(job.deadline).toLocaleDateString()}
-                    </div>
+                    {job.location && (
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <MapPin className="h-4 w-4 flex-shrink-0" />
+                        <span className="truncate">{job.location}</span>
+                      </div>
+                    )}
+                    {job.ctc && (
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <IndianRupee className="h-4 w-4 flex-shrink-0" />
+                        <span className="font-medium text-foreground">{job.ctc}</span>
+                      </div>
+                    )}
+                    {job.deadline && (
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Calendar className="h-4 w-4 flex-shrink-0" />
+                        <span>Deadline: {new Date(job.deadline).toLocaleDateString()}</span>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <Badge variant={job.job_type === "On-Campus" ? "default" : "secondary"}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant={job.job_type === "On-Campus" ? "default" : job.job_type === "Internship" ? "secondary" : "outline"}>
                       {job.job_type}
                     </Badge>
                     {job.status === "Applied" && (
-                      <Badge className="bg-success text-success-foreground">Applied</Badge>
+                      <Badge className="bg-green-500 text-white">
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                        Applied
+                      </Badge>
+                    )}
+                    {job.apply_link && (
+                      <Badge variant="outline" className="text-xs">
+                        External Link
+                      </Badge>
                     )}
                   </div>
 
                   <Button 
-                    className="w-full" 
+                    className="w-full font-semibold" 
                     variant={job.status === "Applied" ? "outline" : "default"}
+                    size="lg"
                     disabled={applying === job.id}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -225,7 +274,22 @@ export default function Jobs() {
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
                         Applying...
                       </>
-                    ) : job.status === "Applied" ? "View Application" : "Apply Now"}
+                    ) : job.status === "Applied" ? (
+                      <>
+                        <CheckCircle2 className="h-4 w-4 mr-2" />
+                        View Application
+                      </>
+                    ) : job.apply_link ? (
+                      <>
+                        <Briefcase className="h-4 w-4 mr-2" />
+                        Apply Externally
+                      </>
+                    ) : (
+                      <>
+                        <Briefcase className="h-4 w-4 mr-2" />
+                        Apply Now
+                      </>
+                    )}
                   </Button>
                 </CardContent>
               </Card>
@@ -246,72 +310,135 @@ export default function Jobs() {
 
       {/* Job Detail Dialog */}
       <Dialog open={!!selectedJob} onOpenChange={() => setSelectedJob(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="h-16 w-16 rounded-lg bg-gradient-primary flex items-center justify-center">
-                <span className="text-white font-bold text-2xl">{selectedJob?.logo}</span>
+            <div className="flex items-start gap-4 mb-4 pb-4 border-b">
+              <div className="h-20 w-20 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-lg flex-shrink-0">
+                <span className="text-white font-bold text-3xl">{selectedJob?.logo}</span>
               </div>
-              <div>
-                <DialogTitle className="text-2xl">{selectedJob?.company}</DialogTitle>
-                <DialogDescription className="text-lg">{selectedJob?.role}</DialogDescription>
+              <div className="flex-1 min-w-0">
+                <DialogTitle className="text-2xl font-bold mb-1">{selectedJob?.company}</DialogTitle>
+                <DialogDescription className="text-lg font-medium">{selectedJob?.role}</DialogDescription>
+                {selectedJob?.title && selectedJob.title !== selectedJob.role && (
+                  <p className="text-sm text-muted-foreground mt-1">{selectedJob.title}</p>
+                )}
+                <div className="flex items-center gap-2 mt-3">
+                  <Badge variant={selectedJob?.job_type === "On-Campus" ? "default" : selectedJob?.job_type === "Internship" ? "secondary" : "outline"}>
+                    {selectedJob?.job_type}
+                  </Badge>
+                  {selectedJob?.status === "Applied" && (
+                    <Badge className="bg-green-500 text-white">
+                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                      Applied
+                    </Badge>
+                  )}
+                </div>
               </div>
             </div>
           </DialogHeader>
 
           {selectedJob && (
             <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Location</p>
-                  <p className="font-medium">{selectedJob.location}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">CTC</p>
-                  <p className="font-medium">{selectedJob.ctc}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Deadline</p>
-                  <p className="font-medium">{new Date(selectedJob.deadline).toLocaleDateString()}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Type</p>
-                  <Badge>{selectedJob.job_type}</Badge>
-                </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
+                {selectedJob.location && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">Location</p>
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-muted-foreground" />
+                      <p className="font-semibold">{selectedJob.location}</p>
+                    </div>
+                  </div>
+                )}
+                {selectedJob.ctc && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">CTC</p>
+                    <div className="flex items-center gap-2">
+                      <IndianRupee className="h-4 w-4 text-muted-foreground" />
+                      <p className="font-semibold">{selectedJob.ctc}</p>
+                    </div>
+                  </div>
+                )}
+                {selectedJob.deadline && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">Deadline</p>
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-muted-foreground" />
+                      <p className="font-semibold">{new Date(selectedJob.deadline).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                )}
+                {selectedJob.totalApplicants !== undefined && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">Applicants</p>
+                    <div className="flex items-center gap-2">
+                      <Users className="h-4 w-4 text-muted-foreground" />
+                      <p className="font-semibold">{selectedJob.totalApplicants}</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div>
-                <h3 className="font-semibold mb-2">Job Description</h3>
-                <p className="text-muted-foreground">{selectedJob.description || "No description available"}</p>
-              </div>
-
-              <div>
-                <h3 className="font-semibold mb-2">Requirements</h3>
-                <ul className="space-y-1">
-                  {selectedJob.requirements && Array.isArray(selectedJob.requirements) ? (
-                    selectedJob.requirements.map((req, idx) => (
-                      <li key={idx} className="text-muted-foreground flex items-start gap-2">
-                        <span className="text-primary mt-1">•</span>
-                        {req}
-                      </li>
-                    ))
-                  ) : (
-                    <li className="text-muted-foreground">No specific requirements listed</li>
-                  )}
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="font-semibold mb-2">Selection Rounds</h3>
-                <div className="flex flex-wrap gap-2">
-                  {selectedJob.selection_rounds && Array.isArray(selectedJob.selection_rounds) ? (
-                    selectedJob.selection_rounds.map((round, idx) => (
-                      <Badge key={idx} variant="outline">{round}</Badge>
-                    ))
-                  ) : (
-                    <span className="text-muted-foreground text-sm">Selection rounds not specified</span>
-                  )}
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-semibold text-lg mb-3 flex items-center gap-2">
+                    <Briefcase className="h-5 w-5" />
+                    Job Description
+                  </h3>
+                  <div className="prose prose-sm max-w-none">
+                    <p className="text-muted-foreground whitespace-pre-wrap">{selectedJob.description || "No description available"}</p>
+                  </div>
                 </div>
+
+                {selectedJob.requirements && Array.isArray(selectedJob.requirements) && selectedJob.requirements.length > 0 && (
+                  <div>
+                    <h3 className="font-semibold text-lg mb-3">Requirements</h3>
+                    <ul className="space-y-2">
+                      {selectedJob.requirements.map((req, idx) => (
+                        <li key={idx} className="text-muted-foreground flex items-start gap-3">
+                          <span className="text-primary mt-1.5 font-bold">•</span>
+                          <span className="flex-1">{req}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {(selectedJob.selection_rounds || selectedJob.rounds) && Array.isArray(selectedJob.selection_rounds || selectedJob.rounds) && (selectedJob.selection_rounds || selectedJob.rounds || []).length > 0 && (
+                  <div>
+                    <h3 className="font-semibold text-lg mb-3">Selection Process</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {(selectedJob.selection_rounds || selectedJob.rounds || []).map((round, idx) => (
+                        <Badge key={idx} variant="outline" className="px-3 py-1">
+                          {idx + 1}. {round}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedJob.apply_link && (
+                  <div className="bg-blue-50 dark:bg-blue-950/20 p-4 rounded-lg border-2 border-blue-200 dark:border-blue-800">
+                    <div className="flex items-start gap-3">
+                      <ExternalLink className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                          External Application Required
+                        </p>
+                        <p className="text-sm text-blue-800 dark:text-blue-200 mb-3">
+                          This job requires applying through the company's website. Click the button below to open the application page.
+                        </p>
+                        <a 
+                          href={selectedJob.apply_link} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-sm text-blue-600 dark:text-blue-400 hover:underline break-all"
+                        >
+                          {selectedJob.apply_link}
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <Button 
@@ -328,7 +455,16 @@ export default function Jobs() {
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
                     Applying...
                   </>
-                ) : selectedJob.status === "Applied" ? "Application Submitted" : "Apply for this Position"}
+                ) : selectedJob.status === "Applied" ? (
+                  "Application Submitted"
+                ) : selectedJob.apply_link ? (
+                  <>
+                    <Briefcase className="h-4 w-4 mr-2" />
+                    Apply on Company Website
+                  </>
+                ) : (
+                  "Apply for this Position"
+                )}
               </Button>
             </div>
           )}

@@ -14,6 +14,7 @@ class Profile(Base):
     email = Column(String(255), nullable=True)
     full_name = Column(String(255), nullable=True)
     college_id = Column(Integer, ForeignKey("colleges.id", ondelete="SET NULL"), nullable=True, index=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id", ondelete="SET NULL"), nullable=True, index=True)
     department = Column(String(100), nullable=True)  # Backward compatibility - department name
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True)  # Link to Department
     section = Column(String(100), nullable=True)  # Backward compatibility - section name
@@ -30,6 +31,7 @@ class Profile(Base):
     # Relationships
     user = relationship("User", back_populates="profile")
     college = relationship("College", back_populates="profiles")
+    institution = relationship("Institution", back_populates="profiles")
     department_obj = relationship("Department", foreign_keys=[department_id], backref="profiles")
     section_obj = relationship("Section", foreign_keys=[section_id], backref="profiles")
 

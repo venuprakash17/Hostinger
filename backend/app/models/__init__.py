@@ -2,11 +2,12 @@
 from app.models.user import User, UserRole
 from app.models.profile import Profile
 from app.models.college import College
+from app.models.institution import Institution
 from app.models.notification import Notification
 from app.models.user_notification import UserNotification
 from app.models.job import Job, JobApplication
 from app.models.audit_log import AuditLog
-from app.models.quiz import Quiz, CodingProblem
+from app.models.quiz import Quiz, CodingProblem, QuizAttempt
 from app.models.coding_submission import CodingSubmission
 from app.models.user_saved_code import UserSavedCode
 from app.models.training_session import TrainingSession
@@ -17,10 +18,13 @@ from app.models.academic import (
     Semester,
     Subject,
     SubjectAssignment,
+    FacultySectionAssignment,
     Period,
-    Section
+    Section,
+    AcademicYearMigration,
+    ArchivedSubjectAssignment,
+    ArchivedFacultySectionAssignment
 )
-from app.models.certificate import Certificate
 from app.models.job_aggregation import JobAggregation
 from app.models.mock_interview import MockInterview
 from app.models.year_promotion import YearPromotion
@@ -52,12 +56,38 @@ from app.models.intelligent_lab import (
     LabLeaderboard,
     LabStudentAssignment
 )
+from app.models.company_training import (
+    Company,
+    CompanyRole,
+    PracticeSection,
+    Round,
+    RoundContent,
+    RoundType
+)
+from app.models.user_analytics import (
+    UserActivity,
+    UserSession,
+    StudentProgress,
+    FeatureAnalytics,
+    ActivityType
+)
+from app.models.resume_analytics import (
+    ResumeAnalytics,
+    StudentResumeProgress
+)
 
 __all__ = [
     "User",
     "UserRole",
     "Profile",
     "College",
+    "Institution",
+    "UserActivity",
+    "UserSession",
+    "StudentProgress",
+    "FeatureAnalytics",
+    "ActivityType",
+    "Institution",
     "Notification",
     "UserNotification",
     "Job",
@@ -65,6 +95,7 @@ __all__ = [
     "AuditLog",
     "Quiz",
     "CodingProblem",
+    "QuizAttempt",
     "UserSavedCode",
     "CodingSubmission",
     "TrainingSession",
@@ -74,9 +105,12 @@ __all__ = [
     "Semester",
     "Subject",
     "SubjectAssignment",
+    "FacultySectionAssignment",
     "Period",
     "Section",
-    "Certificate",
+    "AcademicYearMigration",
+    "ArchivedSubjectAssignment",
+    "ArchivedFacultySectionAssignment",
     "JobAggregation",
     "MockInterview",
     "YearPromotion",
@@ -105,5 +139,13 @@ __all__ = [
     "CodePlayback",
     "LabLeaderboard",
     "LabStudentAssignment",
+    "Company",
+    "CompanyRole",
+    "PracticeSection",
+    "Round",
+    "RoundContent",
+    "RoundType",
+    "ResumeAnalytics",
+    "StudentResumeProgress",
 ]
 

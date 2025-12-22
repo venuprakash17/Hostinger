@@ -60,7 +60,7 @@ export function ResumeAnalytics() {
   // Calculate completeness
   const completeness = useMemo(() => {
     let completed = 0;
-    let total = 2; // Only Personal Info and Education are required
+    const total = 2; // Only Personal Info and Education are required
 
     if (profile?.full_name && profile?.email && profile?.phone_number) completed++;
     if (allEducation.length > 0) completed++;

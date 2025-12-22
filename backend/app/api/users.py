@@ -270,19 +270,21 @@ async def get_all_students(
 @router.get("/", response_model=List[UserListResponse])
 async def list_users(
     college_id: Optional[int] = Query(None, description="Filter by college ID"),
+    institution_id: Optional[int] = Query(None, description="Filter by institution ID"),
     role: Optional[str] = Query(None, description="Filter by role"),
     skip: int = 0,
-    limit: int = 1000,  # Increased limit to show all users
+    limit: int = Query(100, ge=1, le=500),  # Optimized limit for performance (max 500 per request)
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List users, optionally filtered by college, role, and department (for HOD)
+    """List users, optionally filtered by college, institution, role, and department (for HOD)
     
     - Super Admin: Can see all users
     - College Admin: Can see users in their college
+    - Institution Admin: Can see users in their institution
     - HOD: Can only see students and faculty in their department
     """
-    print(f"[List Users] Request - college_id: {college_id}, role: {role}, current_user: {current_user.email}")
+    print(f"[List Users] Request - college_id: {college_id}, institution_id: {institution_id}, role: {role}, current_user: {current_user.email}")
     
     # Check if current user is HOD
     user_roles = db.query(UserRole).filter(UserRole.user_id == current_user.id).all()
@@ -352,6 +354,14 @@ async def list_users(
         users_query = users_query.filter(User.id.in_(profile_user_ids))
         print(f"[List Users] Filtered by college_id={college_id}")
     
+    if institution_id:
+        # Get user IDs from profiles with this institution
+        profile_user_ids = db.query(Profile.user_id).filter(
+            Profile.institution_id == institution_id
+        ).subquery()
+        users_query = users_query.filter(User.id.in_(profile_user_ids))
+        print(f"[List Users] Filtered by institution_id={institution_id}")
+    
     if role:
         # Get user IDs with this role
         role_user_ids = db.query(UserRole.user_id).filter(
@@ -384,6 +394,8 @@ async def list_users(
         
         # Apply additional filters if needed
         if college_id and not is_hod and (not profile or profile.college_id != college_id):
+            continue
+        if institution_id and (not profile or profile.institution_id != institution_id):
             continue
         if role and not any(r.role == RoleEnum(role) for r in roles):
             continue
@@ -420,14 +432,15 @@ async def list_users(
 async def create_user(
     user_data: UserCreateSchema,
     college_id: Optional[int] = Query(None, description="College ID from query parameter"),
+    institution_id: Optional[int] = Query(None, description="Institution ID from query parameter"),
     current_user_tuple = Depends(get_current_admin_or_super),
     db: Session = Depends(get_db)
 ):
     """Create a new user (SUPER ADMIN ONLY).
     
-    Only super admin can create users: super_admin, admin, hod, faculty, student
+    Only super admin can create users: super_admin, admin, hod, faculty, student, institution_admin, institution_student
     
-    Pass college_id as query parameter: ?college_id=123
+    Pass college_id or institution_id as query parameter: ?college_id=123 or ?institution_id=456
     """
     current_user, is_super_admin = current_user_tuple
     
@@ -574,10 +587,24 @@ async def create_user(
     if user_data.handled_sections:
         handled_sections_str = ",".join(user_data.handled_sections)
     
-    # Set college_id from query parameter or use provided one
+    # Set college_id or institution_id from query parameter
     final_college_id = college_id
+    final_institution_id = institution_id
     
-    print(f"[Create User] DEBUG - college_id: {final_college_id}, requested_role: {requested_role.value}")
+    # Validate: institution roles must have institution_id, college roles must have college_id
+    is_institution_role = requested_role in [RoleEnum.INSTITUTION_ADMIN, RoleEnum.INSTITUTION_STUDENT]
+    
+    if is_institution_role and not final_institution_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="institution_id is required for institution roles"
+        )
+    
+    if not is_institution_role and not final_college_id:
+        # Allow college_id to be None for some roles (will be set later)
+        pass
+    
+    print(f"[Create User] DEBUG - college_id: {final_college_id}, institution_id: {final_institution_id}, requested_role: {requested_role.value}")
     
     # Create profile
     profile = Profile(
@@ -585,6 +612,7 @@ async def create_user(
         email=user.email,
         full_name=user_data.full_name,
         college_id=final_college_id,
+        institution_id=final_institution_id,
         department=user_data.department,
         section=user_data.section,
         roll_number=user_data.roll_number,
@@ -650,7 +678,8 @@ async def create_user(
     role = UserRole(
         user_id=user.id,
         role=requested_role,
-        college_id=final_college_id
+        college_id=final_college_id,
+        institution_id=final_institution_id
     )
     db.add(role)
     
@@ -900,11 +929,27 @@ async def update_user(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="HOD cannot change user's role"
             )
-        # Ensure department stays within HOD's department if being updated
+        
+        # HOD cannot edit their own department - they are locked to their assigned department
+        is_hod_editing_self = (user_id == current_user.id and RoleEnum.HOD in role_names)
+        if is_hod_editing_self and 'department' in update_data:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="HOD cannot change their own department. To change department, please delete and recreate the HOD account."
+            )
+        
+        # Ensure department stays within HOD's department if being updated (for other users)
         if 'department' in update_data and update_data.get('department') != hod_department.name:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="HOD can only assign users to their own department"
+            )
+        
+        # Prevent HOD from changing their own department_id
+        if is_hod_editing_self and 'department_id' in update_data:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="HOD cannot change their own department. To change department, please delete and recreate the HOD account."
             )
     elif is_admin and not is_super_admin:
         # College admin can update students, faculty, and HOD in their college
@@ -1212,7 +1257,7 @@ async def update_user(
 async def get_college_students(
     college_id: int,
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 10000,  # Increased limit to show all students (was 100)
     department: Optional[str] = None,
     section: Optional[str] = None,
     present_year: Optional[str] = None,
@@ -1629,6 +1674,68 @@ async def delete_user(
     profile = db.query(Profile).filter(Profile.user_id == user_id).first()
     user_name = profile.full_name if profile else user_email
     
+    # Check if user is faculty - if so, reassign their data to HOD before deletion
+    user_roles = db.query(UserRole).filter(UserRole.user_id == user_id).all()
+    role_names = [r.role for r in user_roles]
+    is_faculty = RoleEnum.FACULTY in role_names
+    
+    if is_faculty and profile:
+        # Find HOD for the same department
+        from app.models.academic import Department
+        hod_id = None
+        
+        if profile.department_id:
+            department = db.query(Department).filter(Department.id == profile.department_id).first()
+            if department and department.hod_id:
+                hod_id = department.hod_id
+        elif profile.department:
+            # Fallback: find department by name
+            department = db.query(Department).filter(
+                Department.name == profile.department,
+                Department.college_id == profile.college_id
+            ).first()
+            if department and department.hod_id:
+                hod_id = department.hod_id
+        
+        if hod_id:
+            # Reassign coding problems
+            from app.models.quiz import CodingProblem
+            coding_problems = db.query(CodingProblem).filter(CodingProblem.created_by == user_id).all()
+            for problem in coding_problems:
+                problem.created_by = hod_id
+                db.flush()
+            
+            # Reassign quizzes
+            from app.models.quiz import Quiz
+            quizzes = db.query(Quiz).filter(Quiz.created_by == user_id).all()
+            for quiz in quizzes:
+                quiz.created_by = hod_id
+                db.flush()
+            
+            # Reassign coding labs (labs created by faculty, but typically HOD creates labs)
+            from app.models.coding_lab import CodingLab
+            labs = db.query(CodingLab).filter(CodingLab.created_by == user_id).all()
+            for lab in labs:
+                lab.created_by = hod_id
+                db.flush()
+            
+            # Reassign lab problems
+            from app.models.coding_lab import LabProblem
+            lab_problems = db.query(LabProblem).filter(LabProblem.created_by == user_id).all()
+            for lab_problem in lab_problems:
+                lab_problem.created_by = hod_id
+                db.flush()
+            
+            # Reassign lab faculty assignments (remove faculty from labs)
+            from app.models.coding_lab import LabFacultyAssignment
+            lab_assignments = db.query(LabFacultyAssignment).filter(
+                LabFacultyAssignment.faculty_id == user_id
+            ).all()
+            for assignment in lab_assignments:
+                db.delete(assignment)
+            
+            db.commit()
+    
     # Delete user (cascades to profile and roles)
     db.delete(user)
     db.commit()
@@ -1650,7 +1757,172 @@ async def delete_user(
     
     return {
         "message": f"Successfully deleted user {user_name}",
-        "deleted_user_id": user_id
+        "deleted_user_id": user_id,
+        "data_reassigned_to_hod": is_faculty and hod_id is not None if is_faculty else False
+    }
+
+
+# Reassign faculty data to another faculty
+class ReassignFacultyDataRequest(BaseModel):
+    from_faculty_id: int = Field(..., description="ID of the faculty whose data will be reassigned")
+    to_faculty_id: int = Field(..., description="ID of the faculty who will receive the data")
+    reassign_coding_problems: bool = Field(True, description="Reassign coding problems")
+    reassign_quizzes: bool = Field(True, description="Reassign quizzes")
+    reassign_labs: bool = Field(True, description="Reassign coding labs")
+    reassign_lab_problems: bool = Field(True, description="Reassign lab problems")
+    reassign_lab_assignments: bool = Field(True, description="Reassign lab faculty assignments")
+
+@router.post("/reassign-faculty-data", response_model=dict)
+async def reassign_faculty_data(
+    request: ReassignFacultyDataRequest,
+    current_user_tuple = Depends(get_current_admin_or_super),
+    db: Session = Depends(get_db)
+):
+    """Reassign data from one faculty to another (Admin or Super Admin only)
+    
+    This allows transferring coding problems, quizzes, labs, etc. from a deleted
+    faculty to a new faculty member. The new faculty can then edit and manage this data.
+    """
+    from app.models.audit_log import AuditLog
+    from datetime import datetime
+    
+    current_user, is_super_admin = current_user_tuple
+    
+    # Verify both users exist and are faculty
+    from_faculty = db.query(User).filter(User.id == request.from_faculty_id).first()
+    to_faculty = db.query(User).filter(User.id == request.to_faculty_id).first()
+    
+    if not from_faculty:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Source faculty (ID: {request.from_faculty_id}) not found"
+        )
+    
+    if not to_faculty:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Target faculty (ID: {request.to_faculty_id}) not found"
+        )
+    
+    # Verify both are faculty
+    from_roles = db.query(UserRole).filter(UserRole.user_id == request.from_faculty_id).all()
+    to_roles = db.query(UserRole).filter(UserRole.user_id == request.to_faculty_id).all()
+    
+    from_is_faculty = any(r.role == RoleEnum.FACULTY for r in from_roles)
+    to_is_faculty = any(r.role == RoleEnum.FACULTY for r in to_roles)
+    
+    if not from_is_faculty:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Source user (ID: {request.from_faculty_id}) is not a faculty member"
+        )
+    
+    if not to_is_faculty:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Target user (ID: {request.to_faculty_id}) is not a faculty member"
+        )
+    
+    # Permission check - college admins can only reassign within their college
+    if not is_super_admin:
+        admin_college_id = get_admin_college_id(current_user, db)
+        from_profile = db.query(Profile).filter(Profile.user_id == request.from_faculty_id).first()
+        to_profile = db.query(Profile).filter(Profile.user_id == request.to_faculty_id).first()
+        
+        if not from_profile or not to_profile:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Faculty profiles not found"
+            )
+        
+        if from_profile.college_id != admin_college_id or to_profile.college_id != admin_college_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Can only reassign data between faculty in your college"
+            )
+    
+    reassigned_counts = {
+        "coding_problems": 0,
+        "quizzes": 0,
+        "labs": 0,
+        "lab_problems": 0,
+        "lab_assignments": 0
+    }
+    
+    # Reassign coding problems
+    if request.reassign_coding_problems:
+        from app.models.quiz import CodingProblem
+        coding_problems = db.query(CodingProblem).filter(CodingProblem.created_by == request.from_faculty_id).all()
+        for problem in coding_problems:
+            problem.created_by = request.to_faculty_id
+            reassigned_counts["coding_problems"] += 1
+        db.flush()
+    
+    # Reassign quizzes
+    if request.reassign_quizzes:
+        from app.models.quiz import Quiz
+        quizzes = db.query(Quiz).filter(Quiz.created_by == request.from_faculty_id).all()
+        for quiz in quizzes:
+            quiz.created_by = request.to_faculty_id
+            reassigned_counts["quizzes"] += 1
+        db.flush()
+    
+    # Reassign coding labs
+    if request.reassign_labs:
+        from app.models.coding_lab import CodingLab
+        labs = db.query(CodingLab).filter(CodingLab.created_by == request.from_faculty_id).all()
+        for lab in labs:
+            lab.created_by = request.to_faculty_id
+            reassigned_counts["labs"] += 1
+        db.flush()
+    
+    # Reassign lab problems
+    if request.reassign_lab_problems:
+        from app.models.coding_lab import LabProblem
+        lab_problems = db.query(LabProblem).filter(LabProblem.created_by == request.from_faculty_id).all()
+        for lab_problem in lab_problems:
+            lab_problem.created_by = request.to_faculty_id
+            reassigned_counts["lab_problems"] += 1
+        db.flush()
+    
+    # Reassign lab faculty assignments
+    if request.reassign_lab_assignments:
+        from app.models.coding_lab import LabFacultyAssignment
+        lab_assignments = db.query(LabFacultyAssignment).filter(
+            LabFacultyAssignment.faculty_id == request.from_faculty_id
+        ).all()
+        for assignment in lab_assignments:
+            assignment.faculty_id = request.to_faculty_id
+            reassigned_counts["lab_assignments"] += 1
+        db.flush()
+    
+    db.commit()
+    
+    # Log audit
+    from_profile = db.query(Profile).filter(Profile.user_id == request.from_faculty_id).first()
+    to_profile = db.query(Profile).filter(Profile.user_id == request.to_faculty_id).first()
+    
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        user_email=current_user.email,
+        action="REASSIGN",
+        entity_type="faculty_data",
+        entity_id=request.from_faculty_id,
+        entity_name=f"Faculty data reassignment",
+        description=f"Reassigned data from faculty {from_profile.full_name if from_profile else request.from_faculty_id} to {to_profile.full_name if to_profile else request.to_faculty_id}",
+        changes={
+            "from_faculty_id": request.from_faculty_id,
+            "to_faculty_id": request.to_faculty_id,
+            "reassigned_counts": reassigned_counts
+        },
+        created_at=datetime.utcnow()
+    )
+    db.add(audit_log)
+    db.commit()
+    
+    return {
+        "message": f"Successfully reassigned faculty data from {request.from_faculty_id} to {request.to_faculty_id}",
+        "reassigned_counts": reassigned_counts
     }
 
 

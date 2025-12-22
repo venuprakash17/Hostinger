@@ -7,9 +7,12 @@ import { AchievementsForm } from "./AchievementsForm";
 import { ExtracurricularForm } from "./ExtracurricularForm";
 import { HobbiesForm } from "./HobbiesForm";
 import { ResumePreviewDialog } from "./ResumePreviewDialog";
+import { ResumePreviewModal } from "./ResumePreviewModal";
+import { SmartResumeAnalysisModal } from "./SmartResumeAnalysisModal";
+import { ProjectSuggestionModal } from "./ProjectSuggestionModal";
 import { useStudentProfile } from "@/hooks/useStudentProfile";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, FileText, Lightbulb } from "lucide-react";
+import { Loader2, FileText, Lightbulb, Download, Sparkles, Briefcase } from "lucide-react";
 import { ResumeSuggestionsPanel } from "./ResumeSuggestionsPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,18 +21,16 @@ import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect, useMemo, useCallback, memo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { resumeStorage } from "@/lib/resumeStorage";
+import { checkOpenAIConfig } from "@/lib/resumeitnow/utils/envCheck";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { CardDescription } from "@/components/ui/card";
 
-// Lazy load heavy PDF library only when needed
-let pdfLib: any = null;
-let pdfComponents: any = null;
-
-const loadPdfLib = async () => {
-  if (!pdfLib) {
-    pdfLib = (await import("@react-pdf/renderer")).pdf;
-    pdfComponents = await import("@react-pdf/renderer");
-  }
-  return { pdf: pdfLib, components: pdfComponents };
-};
+// Use ResumeItNow PDF generator service
+import { generateATSSafePDF, downloadPDF } from "@/lib/resumeitnow/services/pdfGeneratorService";
+import { handlePDFError, handleOpenAIError } from "@/lib/resumeitnow/utils/errorHandler";
+import { trackPDFGeneration } from "@/lib/resumeitnow/utils/analytics";
 
 export const BuildTab = memo(function BuildTab() {
   const { toast } = useToast();
@@ -38,6 +39,12 @@ export const BuildTab = memo(function BuildTab() {
   const [showPreview, setShowPreview] = useState(false);
   const [resumeContent, setResumeContent] = useState<any>(null);
   const [localData, setLocalData] = useState<any>(null);
+  const openAIConfig = checkOpenAIConfig();
+  const [targetRole, setTargetRole] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [jobDescription, setJobDescription] = useState('');
+  const [showSmartAnalysis, setShowSmartAnalysis] = useState(false);
+  const [showProjectSuggestions, setShowProjectSuggestions] = useState(false);
   
   const {
     profile,
@@ -146,453 +153,384 @@ export const BuildTab = memo(function BuildTab() {
       return;
     }
     
+    const startTime = Date.now();
     try {
-      // Lazy load PDF library
-      const { pdf, components } = await loadPdfLib();
-      const { Document, Page, Text, View, StyleSheet } = components;
+      // Prepare ResumeItNow-compatible resume data structure
+      const resumeItNowData = {
+        profile: {
+          full_name: profile.full_name,
+          email: profile.email,
+          phone_number: profile.phone_number,
+          linkedin_profile: profile.linkedin_profile,
+          github_portfolio: profile.github_portfolio,
+          address: profile.address,
+          website: profile.website,
+        },
+        summary: contentToUse.summary,
+        education: contentToUse.formattedEducation || allEducation,
+        work_experience: contentToUse.work_experience || [], // Include work experience
+      extracurricular: contentToUse.formattedExtracurricular || extracurricular,
+      hobbies: contentToUse.formattedHobbies || hobbies,
+      languages: contentToUse.languages || [], // Include languages
+        projects: contentToUse.formattedProjects || allProjects,
+        skills: contentToUse.formattedSkills || formatSkillsForPDF(allSkills),
+        // Template selection handled in preview modal
+        certifications: contentToUse.formattedCertifications || certifications,
+        achievements: contentToUse.formattedAchievements || achievements,
+        extracurricular: contentToUse.formattedExtracurricular || extracurricular,
+        hobbies: contentToUse.formattedHobbies || hobbies,
+        languages: contentToUse.languages || [],
+        references: contentToUse.references || [],
+      };
 
-      // PDF styles - Optimized for single page
-      const styles = StyleSheet.create({
-        page: {
-          padding: 30,
-          fontSize: 10,
-          fontFamily: 'Helvetica',
-          lineHeight: 1.3,
-        },
-        header: {
-          marginBottom: 12,
-          textAlign: 'center',
-          borderBottom: '1pt solid #000',
-          paddingBottom: 6,
-        },
-        name: {
-          fontSize: 20,
-          fontWeight: 'bold',
-          marginBottom: 3,
-          letterSpacing: 0.5,
-        },
-        contact: {
-          fontSize: 8,
-          color: '#555',
-          marginBottom: 1,
-          lineHeight: 1.4,
-        },
-        section: {
-          marginTop: 8,
-          marginBottom: 6,
-        },
-        sectionTitle: {
-          fontSize: 11,
-          fontWeight: 'bold',
-          borderBottom: '1pt solid #000',
-          paddingBottom: 2,
-          marginBottom: 5,
-          textTransform: 'uppercase',
-          letterSpacing: 0.5,
-        },
-        text: {
-          fontSize: 9,
-          lineHeight: 1.3,
-          marginBottom: 3,
-        },
-        summary: {
-          fontSize: 9,
-          lineHeight: 1.4,
-          marginBottom: 8,
-          textAlign: 'justify',
-        },
-        subsection: {
-          marginBottom: 6,
-        },
-        title: {
-          fontSize: 10,
-          fontWeight: 'bold',
-          marginBottom: 1,
-        },
-        subtitle: {
-          fontSize: 9,
-          color: '#555',
-          marginBottom: 1,
-          lineHeight: 1.3,
-        },
-        date: {
-          fontSize: 8,
-          color: '#666',
-          fontStyle: 'italic',
-          marginBottom: 2,
-        },
-        bullet: {
-          fontSize: 9,
-          marginLeft: 8,
-          marginBottom: 1.5,
-          lineHeight: 1.3,
-        },
-        link: {
-          color: '#0066cc',
-          textDecoration: 'none',
-        },
-        compactRow: {
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-          marginBottom: 2,
-        },
-        skillCategory: {
-          fontSize: 9,
-          fontWeight: 'bold',
-          marginBottom: 2,
-        },
-        skillItems: {
-          fontSize: 9,
-          lineHeight: 1.4,
-        },
-      });
-
-      // Create PDF document
-      const ResumePDF = (
-        <Document>
-          <Page size="A4" style={styles.page}>
-            {/* Header */}
-            <View style={styles.header}>
-              <Text style={styles.name}>{profile.full_name}</Text>
-              <Text style={styles.contact}>
-                {profile.email} | {profile.phone_number}
-              </Text>
-              {(profile.linkedin_profile || profile.github_portfolio) && (
-                <Text style={styles.contact}>
-                  {profile.linkedin_profile && (
-                    profile.linkedin_profile.startsWith('http') 
-                      ? profile.linkedin_profile 
-                      : `https://www.linkedin.com/in/${profile.linkedin_profile.replace(/^https?:\/\/(www\.)?linkedin\.com\/in\//, '').replace(/\/$/, '')}`
-                  )}
-                  {profile.linkedin_profile && profile.github_portfolio && ' | '}
-                  {profile.github_portfolio && (
-                    profile.github_portfolio.startsWith('http')
-                      ? profile.github_portfolio
-                      : `https://github.com/${profile.github_portfolio.replace(/^https?:\/\/(www\.)?github\.com\//, '').replace(/\/$/, '')}`
-                  )}
-                </Text>
-              )}
-            </View>
-
-            {/* Summary */}
-            {contentToUse.summary && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>PROFESSIONAL SUMMARY</Text>
-                <Text style={styles.summary}>{contentToUse.summary}</Text>
-              </View>
-            )}
-
-              {/* Education - Compact Layout */}
-              {contentToUse.formattedEducation?.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>EDUCATION</Text>
-                  {contentToUse.formattedEducation
-                    .sort((a: any, b: any) => {
-                      // Sort by end date (most recent first), or by start date if both are current
-                      const aEnd = a.end_date || a.end || a.endDate || '';
-                      const bEnd = b.end_date || b.end || b.endDate || '';
-                      const aCurrent = a.is_current || /present/i.test(aEnd);
-                      const bCurrent = b.is_current || /present/i.test(bEnd);
-                      
-                      if (aCurrent && !bCurrent) return -1;
-                      if (!aCurrent && bCurrent) return 1;
-                      if (aEnd && bEnd) return bEnd.localeCompare(aEnd);
-                      return 0;
-                    })
-                    .map((edu: any, idx: number) => {
-                  const institution = edu.institution_name || edu.institution || edu.school || edu.university || edu.college;
-                  let degree = edu.degree || edu.degree_title || edu.title || '';
-                  // Fix common degree abbreviations
-                  degree = degree.replace(/^B\.tech$/i, 'B.Tech').replace(/^b\.tech$/i, 'B.Tech');
-                  degree = degree.replace(/^M\.tech$/i, 'M.Tech').replace(/^m\.tech$/i, 'M.Tech');
-                  const field = edu.field_of_study || edu.major || edu.specialization;
-                  const start = edu.start_date ? edu.start_date.substring(0, 4) : (edu.start ? edu.start.substring(0, 4) : (edu.startDate ? edu.startDate.substring(0, 4) : ''));
-                  const endRaw = edu.end_date || edu.end || edu.endDate;
-                  const isCurrent = (edu.is_current ?? edu.current) ?? (typeof endRaw === 'string' && /present/i.test(endRaw));
-                  const end = isCurrent ? 'Present' : (endRaw ? endRaw.substring(0, 4) : '');
-                  const cgpa = edu.cgpa_percentage || edu.cgpa || edu.gpa || edu.score;
-
-                  return (
-                    <View key={idx} style={styles.subsection}>
-                      <View style={styles.compactRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.title}>{degree || institution}</Text>
-                          {(institution || field) && (
-                            <Text style={styles.subtitle}>
-                              {institution}{field ? ` • ${field}` : ''}
-                              {cgpa ? ` • CGPA: ${cgpa}` : ''}
-                            </Text>
-                          )}
-                        </View>
-                        {(start || end) && (
-                          <Text style={styles.date}>{start} - {end}</Text>
-                        )}
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-
-              {/* Skills - Compact Layout */}
-              {contentToUse.formattedSkills && Object.keys(contentToUse.formattedSkills).length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>SKILLS</Text>
-                  {Object.entries(contentToUse.formattedSkills).map(
-                  ([category, skills]: [string, any]) => {
-                    const skillList = Array.isArray(skills) ? skills : [];
-                    if (skillList.length === 0) return null;
-                    return (
-                      <View key={category} style={{ marginBottom: 3 }}>
-                        <Text style={styles.skillCategory}>{category.charAt(0).toUpperCase() + category.slice(1)}: </Text>
-                        <Text style={styles.skillItems}>{skillList.join(' • ')}</Text>
-                      </View>
-                    );
-                  }
-                )}
-              </View>
-            )}
-
-              {/* Projects - Compact Layout */}
-              {contentToUse.formattedProjects?.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>PROJECTS</Text>
-                  {contentToUse.formattedProjects.slice(0, 3).map((project: any, idx: number) => (
-                  <View key={idx} style={styles.subsection}>
-                    <View style={styles.compactRow}>
-                      <Text style={styles.title}>
-                        {project.project_title || project.title}
-                      </Text>
-                      {project.duration_start && project.duration_end && (
-                        <Text style={styles.date}>
-                          {project.duration_start.substring(0, 4)} - {project.duration_end.substring(0, 4)}
-                        </Text>
-                      )}
-                    </View>
-                    {project.technologies_used && project.technologies_used.length > 0 && (
-                      <Text style={styles.subtitle}>
-                        {Array.isArray(project.technologies_used) 
-                          ? project.technologies_used.slice(0, 8).join(' • ') 
-                          : project.technologies_used}
-                      </Text>
-                    )}
-                    {project.contributions && project.contributions.length > 0 && (
-                      <View style={{ marginTop: 2 }}>
-                        {project.contributions.slice(0, 4).map((contribution: string, cIdx: number) => (
-                          <Text key={cIdx} style={styles.bullet}>
-                            • {contribution}
-                          </Text>
-                        ))}
-                      </View>
-                    )}
-                    {/* Fallback: Use role_contribution if contributions array is not available */}
-                    {(!project.contributions || project.contributions.length === 0) && project.role_contribution && (
-                      <Text style={styles.bullet}>
-                        • {project.role_contribution}
-                      </Text>
-                    )}
-                  </View>
-                ))}
-              </View>
-            )}
-
-              {/* Certifications - Inline Layout */}
-              {contentToUse.formattedCertifications && contentToUse.formattedCertifications.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>CERTIFICATIONS</Text>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                    {contentToUse.formattedCertifications
-                      .filter((cert: any) => cert && (cert.certification_name || cert.title))
-                      .slice(0, 5)
-                      .map((cert: any, idx: number, arr: any[]) => {
-                        const certName = cert.certification_name || cert.title || cert.name || '';
-                        const org = cert.issuing_organization || cert.organization || cert.issuer || '';
-                        const date = cert.issue_date || cert.date_issued || cert.date || '';
-                        
-                        let certText = certName;
-                        if (org && org.trim() && org.trim() !== certName.trim()) {
-                          certText += `, ${org}`;
-                        }
-                        if (date && date.trim()) {
-                          const formattedDate = date.length > 4 ? date.substring(0, 4) : date;
-                          certText += ` (${formattedDate})`;
-                        }
-                        
-                        return (
-                          <Text key={idx} style={[styles.bullet, { marginRight: 8 }]}>
-                            {idx > 0 ? '• ' : ''}{certText}{idx < arr.length - 1 ? '' : ''}
-                          </Text>
-                        );
-                      })}
-                  </View>
-              </View>
-            )}
-
-              {/* Achievements - Compact */}
-              {contentToUse.formattedAchievements && contentToUse.formattedAchievements.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>ACHIEVEMENTS</Text>
-                  {contentToUse.formattedAchievements
-                    .filter((ach: any) => ach && (ach.achievement_title || ach.title))
-                    .slice(0, 3)
-                    .map((ach: any, idx: number) => {
-                      const title = ach.achievement_title || ach.title || '';
-                      const desc = ach.description || '';
-                      const issuer = ach.issuing_body || ach.issuer || '';
-                      
-                      let achievementText = title;
-                      if (desc && desc.trim() && desc.length < 80) {
-                        achievementText += `: ${desc}`;
-                      } else if (desc && desc.trim()) {
-                        achievementText += `: ${desc.substring(0, 80)}...`;
-                      }
-                      if (issuer && issuer.trim()) {
-                        achievementText += ` (${issuer})`;
-                      }
-                      
-                      return (
-                        <Text key={idx} style={styles.bullet}>
-                          • {achievementText}
-                        </Text>
-                      );
-                    })}
-              </View>
-            )}
-
-              {/* Extracurricular - Compact */}
-              {contentToUse.formattedExtracurricular && contentToUse.formattedExtracurricular.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>EXTRACURRICULAR</Text>
-                  {contentToUse.formattedExtracurricular.slice(0, 2).map((extra: any, idx: number) => (
-                  <View key={idx} style={{ marginBottom: 3 }}>
-                    <Text style={styles.bullet}>
-                      • <Text style={styles.title}>
-                        {extra.activity_organization || extra.activity_name}
-                        {extra.role && ` - ${extra.role}`}
-                      </Text>
-                      {extra.description && extra.description.length < 60 && (
-                        <Text style={styles.text}>: {extra.description}</Text>
-                      )}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            )}
-
-              {/* Hobbies - Inline */}
-              {contentToUse.formattedHobbies && contentToUse.formattedHobbies.length > 0 && (
-              <View style={[styles.section, { marginTop: 4 }]}>
-                <Text style={styles.sectionTitle}>INTERESTS</Text>
-                  <Text style={styles.text}>
-                    {contentToUse.formattedHobbies
-                    .map((hobby: any) => typeof hobby === 'string' ? hobby : (hobby.hobby_name || hobby.name || hobby.title || ''))
-                    .filter((s: string) => s && s.trim())
-                    .slice(0, 6)
-                    .join(' • ')}
-                </Text>
-              </View>
-            )}
-          </Page>
-        </Document>
-      );
-
-      // Generate PDF blob
-      const blob = await pdf(ResumePDF).toBlob();
+      // Use ResumeItNow ATS-safe PDF generator with selected template
+      // Use default template - actual template selection is in preview modal
+      const pdfBlob = await generateATSSafePDF(resumeItNowData, 'fresher_classic');
 
       // Download PDF
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${profile.full_name?.replace(/\s+/g, '_')}_Resume.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      downloadPDF(pdfBlob, `${profile.full_name?.replace(/\s+/g, '_')}_Resume.pdf`);
+
+      // Track PDF generation
+      const duration = Date.now() - startTime;
+      trackPDFGeneration(
+        true,
+        duration,
+        undefined, // error
+        {
+          completeness,
+          sections_completed: {
+            personal_info: !!(profile?.full_name && profile?.email && profile?.phone_number),
+            education: allEducation.length > 0,
+            projects: allProjects.length > 0,
+            skills: allSkills.length > 0,
+            certifications: certifications.length > 0,
+            achievements: achievements.length > 0,
+            extracurricular: extracurricular.length > 0,
+            hobbies: hobbies.length > 0,
+          }
+        }
+      );
 
       toast({
         title: "Resume Downloaded",
-        description: "Your resume has been downloaded as a PDF.",
+        description: "Your ATS-safe resume has been downloaded as a PDF.",
       });
     } catch (error: any) {
       console.error("Download error:", error);
+      const duration = Date.now() - startTime;
+      const errorInfo = handlePDFError(error);
+      trackPDFGeneration(false, duration, errorInfo.message);
       toast({
-        title: "Download Failed",
-        description: "Failed to download resume",
+        title: errorInfo.message,
+        description: errorInfo.actionable,
         variant: "destructive",
       });
     }
     }, [allEducation, allProjects, allSkills, certifications, achievements, extracurricular, hobbies, profile, toast, resumeContent]);
 
-  // Define handleGenerateResume after handleDownloadPDF
-  const handleGenerateResume = useCallback(async () => {
-    try {
-      setIsGenerating(true);
+  // Helper function to format skills for PDF
+  const formatSkillsForPDF = (skills: any[]) => {
+    const formatted: Record<string, string[]> = {
+      technical: [],
+      soft: [],
+      languages: [],
+    };
+
+    skills.forEach((skill: any) => {
+      const category = skill.category || 'technical';
+      const skillList = Array.isArray(skill.skills)
+        ? skill.skills
+        : (typeof skill.skills === 'string'
+            ? skill.skills.split(',').map((s: string) => s.trim()).filter(Boolean)
+            : []);
       
-      if (!profile || !profile.full_name || !profile.email || !profile.phone_number) {
-        toast({
-          title: "Personal Information Required",
-          description: "Please complete your personal information (name, email, phone) first",
-          variant: "destructive",
-        });
-        setIsGenerating(false);
-        return;
-      }
+      if (!formatted[category]) formatted[category] = [];
+      formatted[category].push(...skillList);
+    });
 
-      if (allEducation.length === 0) {
-        toast({
-          title: "Education Required",
-          description: "Please add at least one education entry",
-          variant: "destructive",
-        });
-        setIsGenerating(false);
-        return;
-      }
+    return formatted;
+  };
 
+  // Prepare resume data for preview modal - keeps skills as dict for templates
+  const prepareResumeData = useCallback(() => {
+    // Format skills as dictionary for template preview (templates need this format)
+    const formattedSkills = formatSkillsForPDF(allSkills);
+    
+    return {
+      profile: {
+        full_name: profile?.full_name || '',
+        email: profile?.email || '',
+        phone_number: profile?.phone_number || '',
+        linkedin_profile: profile?.linkedin_profile || '',
+        github_portfolio: profile?.github_portfolio || '',
+        address: profile?.address || '',
+        // company_name will be added during optimization in preview modal
+      },
+      summary: resumeContent?.summary,
+      education: allEducation.map((edu: any) => ({
+        degree: edu.degree || edu.degree_title || '',
+        institution_name: edu.institution_name || edu.institution || edu.school || '',
+        field_of_study: edu.field_of_study || edu.major || '',
+        start_date: edu.start_date || edu.start || '',
+        end_date: edu.end_date || edu.end || '',
+        is_current: edu.is_current || false,
+        cgpa_percentage: edu.cgpa_percentage || edu.cgpa || edu.gpa || '',
+      })),
+      projects: allProjects.map((proj: any) => ({
+        project_title: proj.project_title || proj.title || '',
+        description: proj.description || '',
+        technologies_used: proj.technologies_used || [],
+        contributions: proj.contributions || [],
+        duration_start: proj.duration_start || proj.start_date || '',
+        duration_end: proj.duration_end || proj.end_date || '',
+      })),
+      skills: formattedSkills,
+      certifications: certifications.map((cert: any) => ({
+        certification_name: cert.certification_name || cert.title || '',
+        issuing_organization: cert.issuing_organization || cert.organization || '',
+        issue_date: cert.issue_date || cert.date_issued || '',
+      })),
+      achievements: achievements.map((ach: any) => ({
+        achievement_title: ach.achievement_title || ach.title || '',
+        title: ach.achievement_title || ach.title || '',
+        description: ach.description || '',
+        date: ach.date || '',
+        organization: ach.organization || '',
+      })),
+      extracurricular: extracurricular.map((extra: any) => ({
+        activity_name: extra.activity_name || extra.name || '',
+        activity_organization: extra.activity_organization || extra.organization || '',
+        role: extra.role || '',
+        description: extra.description || '',
+        start_date: extra.start_date || '',
+        end_date: extra.end_date || '',
+      })),
+      hobbies: hobbies.map((hobby: any) => (
+        typeof hobby === 'string' 
+          ? { hobby_name: hobby } 
+          : { hobby_name: hobby.hobby_name || hobby.name || hobby.title || '', description: hobby.description || '' }
+      )),
+      languages: [], // Languages are included in skills, extract if needed
+      work_experience: [],
+    };
+  }, [profile, allEducation, allProjects, allSkills, certifications, achievements, extracurricular, hobbies, resumeContent]);
+
+  // Handle resume optimization for job application
+  const handleOptimizeResume = useCallback(async () => {
+    if (!targetRole.trim()) {
       toast({
-        title: "Enhancing Resume with AI",
-        description: "Generating ATS-friendly resume... This may take a few seconds.",
-      });
-
-      // Prepare resume data for AI enhancement
-      const resumeData = {
-        profile,
-        education: allEducation,
-        projects: allProjects.length > 0 ? allProjects : undefined,
-        skills: allSkills.length > 0 ? allSkills : undefined,
-        certifications: certifications.length > 0 ? certifications : undefined,
-        achievements: achievements.length > 0 ? achievements : undefined,
-        extracurricular: extracurricular.length > 0 ? extracurricular : undefined,
-        hobbies: hobbies.length > 0 ? hobbies : undefined,
-      };
-
-      // Import and call AI enhancer
-      const { enhanceResumeWithAI } = await import("@/lib/aiResumeEnhancer");
-      const enhancedResume = await enhanceResumeWithAI(resumeData);
-
-      setResumeContent(enhancedResume);
-      
-      // Generate and download PDF using the AI-enhanced resume
-      await handleDownloadPDF(enhancedResume);
-      
-      toast({
-        title: "Resume Generated Successfully!",
-        description: enhancedResume.atsScore 
-          ? `Your ATS-friendly resume has been generated (ATS Score: ${enhancedResume.atsScore}/100)`
-          : "Your ATS-friendly resume has been generated and downloaded!",
-        variant: "default",
-      });
-      
-      setIsGenerating(false);
-    } catch (error: any) {
-      console.error("Error generating resume:", error);
-      toast({
-        title: "Failed to generate resume",
-        description: error.message || "Please try again later",
+        title: "Target Role Required",
+        description: "Please enter the job role you are applying for",
         variant: "destructive",
       });
-      setIsGenerating(false);
+      return;
     }
-  }, [profile, allEducation, allProjects, allSkills, certifications, achievements, extracurricular, hobbies, handleDownloadPDF, toast]);
+
+    setIsOptimizing(true);
+    try {
+      const resumeData = prepareResumeData();
+      
+      // Format skills for API (backend expects flat list)
+      const formatSkillsForAPI = (skills: Record<string, string[]> | undefined): string[] => {
+        if (!skills) return [];
+        const flatList: string[] = [];
+        Object.values(skills).forEach(categorySkills => {
+          if (Array.isArray(categorySkills)) {
+            flatList.push(...categorySkills.filter(s => typeof s === 'string' && s.trim().length > 0));
+          }
+        });
+        return flatList;
+      };
+
+      const apiData = {
+        ...resumeData,
+        skills: formatSkillsForAPI(resumeData.skills as Record<string, string[]>),
+      };
+
+      const result = await optimizeResume(
+        apiData as any,
+        targetRole,
+        jobDescription || undefined
+      );
+
+      const optimized = result.optimized_resume || result;
+      
+      // Convert skills back to dict format if needed
+      if (optimized.skills && Array.isArray(optimized.skills)) {
+        optimized.skills = { technical: optimized.skills };
+      }
+
+      // Ensure profile structure is maintained
+      if (!optimized.profile && resumeData.profile) {
+        optimized.profile = resumeData.profile;
+      }
+
+      setOptimizedResumeData(optimized);
+      
+      // Check if we should suggest adding projects
+      const currentProjectsCount = allProjects.length;
+      if (currentProjectsCount < 3 && targetRole) {
+        // Show project suggestion modal after a short delay
+        setTimeout(() => {
+          setShowProjectSuggestions(true);
+        }, 1000);
+      }
+      
+      toast({
+        title: "Resume Optimized!",
+        description: `Your resume has been tailored for ${targetRole} with ${result.improvements_made?.length || 0} improvements. Ready to preview and download!${currentProjectsCount < 3 ? ' We\'ll suggest some projects to strengthen your resume.' : ''}`,
+      });
+    } catch (error) {
+      console.error('Error optimizing resume:', error);
+      toast({
+        title: "Optimization Failed",
+        description: error instanceof Error ? error.message : "Failed to optimize resume. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsOptimizing(false);
+    }
+  }, [targetRole, jobDescription, prepareResumeData, toast, allProjects.length]);
+
+  // Handle adding missing sections
+  const handleAddSections = useCallback((sections: string[]) => {
+    // Scroll to the relevant section in the form
+    sections.forEach((section) => {
+      const sectionId = section.replace('_', '-') + '-section';
+      const element = document.getElementById(sectionId);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // Highlight the section briefly
+        element.classList.add('ring-2', 'ring-primary', 'ring-offset-2');
+        setTimeout(() => {
+          element.classList.remove('ring-2', 'ring-primary', 'ring-offset-2');
+        }, 2000);
+      }
+    });
+    
+    toast({
+      title: "Sections Ready",
+      description: `Please fill in the ${sections.length} section(s) below.`,
+    });
+  }, [toast]);
+
+  // Handle project suggestions
+  const handleGetProjectSuggestions = useCallback(() => {
+    if (!targetRole) {
+      toast({
+        title: "Target Role Required",
+        description: "Please enter a target role first to get project suggestions.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setShowProjectSuggestions(true);
+  }, [targetRole, toast]);
+
+  // Handle adding suggested projects (from Smart Analysis Modal)
+  const handleAddProjectsFromAnalysis = useCallback(async (newProjects: any[]) => {
+    try {
+      const existingProjects = resumeStorage.load('projects_saved') || [];
+      const projectsToAdd = newProjects.map((proj, idx) => ({
+        ...proj,
+        id: `suggested_${Date.now()}_${idx}`,
+        created_at: new Date().toISOString(),
+      }));
+      const allProjectsToSave = [...existingProjects, ...projectsToAdd];
+      resumeStorage.save('projects_saved', allProjectsToSave);
+      window.dispatchEvent(new Event('resumeDataUpdated'));
+      
+      toast({
+        title: "Projects Added!",
+        description: `Added ${newProjects.length} project(s). Please fill in the details below.`,
+      });
+      
+      // Scroll to projects section
+      setTimeout(() => {
+        const projectsSection = document.getElementById('projects-section');
+        if (projectsSection) {
+          projectsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 500);
+    } catch (error) {
+      console.error('Error adding projects:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add projects. Please try again.",
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
+
+  // Handle removing irrelevant projects
+  const handleRemoveProjects = useCallback(async (projectTitles: string[]) => {
+    try {
+      const existingProjects = resumeStorage.load('projects_saved') || [];
+      const filteredProjects = existingProjects.filter(
+        (proj: any) => !projectTitles.includes(proj.project_title || proj.title || '')
+      );
+      resumeStorage.save('projects_saved', filteredProjects);
+      window.dispatchEvent(new Event('resumeDataUpdated'));
+      
+      toast({
+        title: "Projects Removed",
+        description: `Removed ${projectTitles.length} project(s). Consider adding more relevant projects.`,
+      });
+      
+      // Scroll to projects section
+      setTimeout(() => {
+        const projectsSection = document.getElementById('projects-section');
+        if (projectsSection) {
+          projectsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 500);
+    } catch (error) {
+      console.error('Error removing projects:', error);
+      toast({
+        title: "Error",
+        description: "Failed to remove projects. Please try again.",
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
+
+  // Handle proceeding to preview after analysis
+  const handleProceedToPreview = useCallback(() => {
+    setShowPreview(true);
+  }, []);
+
+  // Define handleGenerateResume - shows smart analysis first, then preview
+  const handleGenerateResume = useCallback(() => {
+    if (!targetRole.trim()) {
+      toast({
+        title: "Target Role Required",
+        description: "Please enter the target role you are applying for",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!profile || !profile.full_name || !profile.email || !profile.phone_number) {
+      toast({
+        title: "Personal Information Required",
+        description: "Please complete your personal information (name, email, phone) first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (allEducation.length === 0) {
+      toast({
+        title: "Education Required",
+        description: "Please add at least one education entry",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Show smart analysis modal first
+    setShowSmartAnalysis(true);
+  }, [profile, allEducation.length, targetRole, toast]);
 
   if (isLoading) {
     return (
@@ -604,6 +542,58 @@ export const BuildTab = memo(function BuildTab() {
 
   return (
     <div className="space-y-6">
+      {/* Job Application Details - FIRST SECTION (Above Personal Info) */}
+      <Card className="bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Briefcase className="h-5 w-5 text-primary" />
+            Job Application Details
+          </CardTitle>
+          <CardDescription>
+            Enter the job details you're applying for. Our smart system will optimize your resume accordingly.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="companyName">Company Name</Label>
+              <Input
+                id="companyName"
+                placeholder="e.g., Google, Microsoft, Amazon"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="targetRole">
+                Target Role <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="targetRole"
+                placeholder="e.g., Software Developer, Data Scientist"
+                value={targetRole}
+                onChange={(e) => setTargetRole(e.target.value)}
+                required
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="jobDescription">Job Description (Recommended)</Label>
+            <Textarea
+              id="jobDescription"
+              placeholder="Paste the complete job description here for better optimization..."
+              value={jobDescription}
+              onChange={(e) => setJobDescription(e.target.value)}
+              rows={4}
+              className="resize-none"
+            />
+            <p className="text-xs text-muted-foreground">
+              💡 Tip: Include the full job description for best results. We'll extract keywords and optimize your resume.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Completeness Card */}
       <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
         <CardContent className="pt-6">
@@ -623,15 +613,47 @@ export const BuildTab = memo(function BuildTab() {
         </CardContent>
       </Card>
 
+      {/* OpenAI Configuration Warning */}
+      {!openAIConfig.configured && (
+        <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20">
+          <Sparkles className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
+          <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+            <strong>AI Features Disabled:</strong> {openAIConfig.message}
+            <br />
+            <a 
+              href="https://platform.openai.com/api-keys" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="underline font-medium hover:text-yellow-900 dark:hover:text-yellow-100 mt-1 inline-block"
+            >
+              Get your OpenAI API key here →
+            </a>
+            <br />
+            <span className="text-sm mt-2 block">
+              Note: Resume generation will still work, but AI enhancement features will be limited.
+            </span>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Template selection moved to preview modal */}
+
+
       {/* Instructions Alert */}
       <Alert>
         <AlertDescription>
-          Fill in the required sections below to create your resume profile. You can edit any section at any time.
-          <strong className="block mt-2">Required:</strong> Personal Info, Education
-          <strong className="block mt-1">Optional (Enhance Resume):</strong> Projects, Skills, Certifications, Achievements, Extracurricular, Hobbies
+          <strong className="block mb-2">📋 Resume Building Steps:</strong>
+          <ol className="list-decimal list-inside space-y-1 text-sm">
+            <li>Enter <strong>Job Application Details</strong> above (Company, Role, JD)</li>
+            <li>Fill in your <strong>Personal Information</strong> and <strong>Education</strong> (Required)</li>
+            <li>Add <strong>Projects, Skills, Certifications</strong> to strengthen your resume (Recommended)</li>
+            <li>Click <strong>"Build & Optimize Resume"</strong> button below</li>
+            <li>Our smart system will analyze and suggest missing sections</li>
+            <li>Add suggested sections, then proceed to preview and download</li>
+          </ol>
           {completeness < 100 && (
             <strong className="block mt-2 text-primary">
-              Complete required sections ({completeness}% done) to unlock the "Generate Resume PDF" button.
+              Complete required sections ({completeness}% done) to unlock the "Build & Optimize Resume" button.
             </strong>
           )}
         </AlertDescription>
@@ -648,26 +670,38 @@ export const BuildTab = memo(function BuildTab() {
       />
 
       {/* Personal Information */}
-      <PersonalInfoForm
-        initialData={profile || undefined}
-        onSave={(data) => saveProfile.mutate(data)}
-        isSaving={saveProfile.isPending}
-      />
+      <div id="personal-info-section">
+        <PersonalInfoForm
+          initialData={profile || undefined}
+          onSave={(data) => saveProfile.mutate(data)}
+          isSaving={saveProfile.isPending}
+        />
+      </div>
 
       {/* Education */}
-      <EducationForm education={allEducation} />
+      <div id="education-section">
+        <EducationForm education={allEducation} />
+      </div>
 
       {/* Projects */}
-      <ProjectsForm projects={allProjects} />
+      <div id="projects-section">
+        <ProjectsForm projects={allProjects} />
+      </div>
 
       {/* Skills */}
-      <SkillsForm skills={allSkills} />
+      <div id="skills-section">
+        <SkillsForm skills={allSkills} />
+      </div>
 
       {/* Certifications */}
-      <CertificationsForm certifications={certifications} />
+      <div id="certifications-section">
+        <CertificationsForm certifications={certifications} />
+      </div>
 
       {/* Achievements */}
-      <AchievementsForm achievements={achievements} />
+      <div id="achievements-section">
+        <AchievementsForm achievements={achievements} />
+      </div>
 
       {/* Extracurricular */}
       <ExtracurricularForm extracurricular={extracurricular} />
@@ -680,38 +714,75 @@ export const BuildTab = memo(function BuildTab() {
         <Card className="bg-gradient-to-r from-primary to-primary/80 text-white">
           <CardContent className="pt-6">
             <div className="text-center space-y-4">
-              <h3 className="text-xl font-semibold">Ready to Generate Your Resume!</h3>
+              <h3 className="text-xl font-semibold">Ready to Build Your Resume!</h3>
               <p className="text-white/90">
-                Your profile is complete. Generate a professional ATS-friendly resume now.
+                {targetRole 
+                  ? `Click below to analyze and build your optimized resume for ${targetRole}${companyName ? ` at ${companyName}` : ''}.`
+                  : 'Enter job details above, then click below to build your optimized resume.'}
               </p>
               <Button
                 size="lg"
                 variant="secondary"
                 className="w-full md:w-auto"
                 onClick={handleGenerateResume}
-                disabled={isGenerating}
+                disabled={!targetRole.trim()}
               >
-                {isGenerating ? (
-                  <>
-                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <FileText className="w-5 h-5 mr-2" />
-                    Generate Resume PDF
-                  </>
-                )}
+                <FileText className="w-5 h-5 mr-2" />
+                {targetRole ? 'Build & Optimize Resume' : 'Enter Target Role First'}
               </Button>
+              {!targetRole && (
+                <p className="text-xs text-white/70 mt-2">
+                  ⚠️ Please enter a target role in the "Job Application Details" section above
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Resume Preview Dialog */}
-      <ResumePreviewDialog
+      {/* Smart Resume Analysis Modal */}
+      {targetRole && (
+        <SmartResumeAnalysisModal
+          open={showSmartAnalysis}
+          onOpenChange={setShowSmartAnalysis}
+          resumeData={prepareResumeData()}
+          targetRole={targetRole}
+          companyName={companyName}
+          jobDescription={jobDescription}
+          onAddSections={handleAddSections}
+          onAddProjects={handleGetProjectSuggestions}
+          onRemoveProjects={handleRemoveProjects}
+          onProceed={handleProceedToPreview}
+        />
+      )}
+
+      {/* Project Suggestion Modal */}
+      {targetRole && (
+        <ProjectSuggestionModal
+          open={showProjectSuggestions}
+          onOpenChange={setShowProjectSuggestions}
+          targetRole={targetRole}
+          jobDescription={jobDescription}
+          companyName={companyName}
+          currentProjects={allProjects}
+          onAddProjects={handleAddProjectsFromAnalysis}
+        />
+      )}
+
+      {/* Resume Preview Modal - New popup with template selection and optimization */}
+      <ResumePreviewModal
         open={showPreview}
         onOpenChange={setShowPreview}
+        resumeData={prepareResumeData()}
+        targetRole={targetRole}
+        companyName={companyName}
+        jobDescription={jobDescription}
+      />
+
+      {/* Keep old dialog for backward compatibility if needed */}
+      <ResumePreviewDialog
+        open={false}
+        onOpenChange={() => {}}
         resumeContent={resumeContent}
         profile={profile}
         onDownload={handleDownloadPDF}

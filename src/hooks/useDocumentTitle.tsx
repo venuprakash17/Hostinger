@@ -4,16 +4,13 @@ import { useLocation } from "react-router-dom";
 
 /**
  * Hook to update document title with user role
- * Format: "SvnaJobs - [Role] - [Page Name]"
+ * Format: "[Role]"
  */
 export function useDocumentTitle() {
   const { userRole, isSuperAdmin, isAdmin, isHOD, isFaculty, isStudent, loading } = useUserRole();
   const location = useLocation();
 
   useEffect(() => {
-    // Base title
-    const baseTitle = "SvnaJobs";
-    
     // Get role display name - use simple role names
     let roleDisplay = "";
     if (!loading && userRole) {
@@ -59,7 +56,6 @@ export function useDocumentTitle() {
         'coding-problems': 'Coding Problems',
         'coding-labs': 'Coding Labs',
         'resume': 'Resume',
-        'certificates': 'Certificates',
         'analytics': 'Analytics',
         'settings': 'Settings',
       };
@@ -81,17 +77,9 @@ export function useDocumentTitle() {
 
     const pageName = getPageName(location.pathname);
 
-    // Build title
-    let title = baseTitle;
-    if (roleDisplay) {
-      title += ` - ${roleDisplay}`;
-    }
-    if (pageName && pageName !== "Dashboard") {
-      title += ` - ${pageName}`;
-    } else if (!roleDisplay) {
-      title += " - College & Placement Management Platform";
-    }
-
+    // Build title - just the role
+    const title = roleDisplay || "SvnaJobs";
+    
     // Update document title
     document.title = title;
   }, [userRole, isSuperAdmin, isAdmin, isHOD, isFaculty, isStudent, loading, location.pathname]);

@@ -117,7 +117,8 @@ async def list_colleges(
 ):
     """List all colleges"""
     # Order must come before offset/limit in SQLAlchemy
-    colleges = db.query(College).order_by(College.created_at.desc()).offset(skip).limit(limit).all()
+    from app.core.db_utils import safe_list_query
+    colleges = safe_list_query(db, db.query(College).order_by(College.created_at.desc()).offset(skip).limit(limit))
     return colleges
 
 

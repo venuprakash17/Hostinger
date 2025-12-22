@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, memo } from "react";
+import { useDebounce } from "@/hooks/useDebounce";
 import { apiClient } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -118,6 +119,7 @@ export default function ManageColleges() {
   const [studentDialogOpen, setStudentDialogOpen] = useState(false);
   const [staffDialogOpen, setStaffDialogOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const debouncedSearchTerm = useDebounce(searchTerm, 300);
   const [selectedStudents, setSelectedStudents] = useState<Set<number>>(new Set());
   const [filterDepartment, setFilterDepartment] = useState<string>("");
   const [filterSection, setFilterSection] = useState<string>("");
@@ -346,7 +348,7 @@ export default function ManageColleges() {
       
       return () => clearTimeout(timeoutId);
     }
-  }, [filterDepartment, filterSection, filterYear, filterStatus, searchTerm, selectedCollege]);
+  }, [filterDepartment, filterSection, filterYear, filterStatus, debouncedSearchTerm, selectedCollege]);
 
   const fetchColleges = async () => {
     try {

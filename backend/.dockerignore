@@ -1,0 +1,33 @@
+# Exclude environment files from Docker build
+.env
+.env.*
+*.env
+
+# Exclude Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Exclude virtual environment
+venv/
+env/
+ENV/
+
+# Exclude database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Exclude IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Exclude uploads (will be mounted as volume)
+uploads/
+
+# Exclude data directory (will be mounted as volume)
+data/
+

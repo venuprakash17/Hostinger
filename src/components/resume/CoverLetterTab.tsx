@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { useStudentProfile } from "@/hooks/useStudentProfile";
 import { apiClient } from "@/integrations/api/client";
+import { generateCoverLetterWithOpenAI } from "@/lib/resumeitnow/services/openaiService";
+import { handleOpenAIError } from "@/lib/resumeitnow/utils/errorHandler";
 
 interface CoverLetterResult {
   coverLetter: string;
@@ -64,17 +66,36 @@ export function CoverLetterTab() {
         achievements: [],
       };
 
-      // Generate cover letter using API
-      const apiResult = await apiClient.generateCoverLetter({
-        resume_data: resumeData,
-        job_description: jobDescription || "Software Engineer position",
-        company_name: companyName,
-        role: position,
-      });
+      // Try ResumeItNow OpenAI service first, fallback to backend API
+      let coverLetterText = '';
+      try {
+        coverLetterText = await generateCoverLetterWithOpenAI(
+          resumeData,
+          jobDescription || "Software Engineer position",
+          companyName,
+          position
+        );
+      } catch (error) {
+        const errorInfo = handleOpenAIError(error);
+        console.warn('ResumeItNow OpenAI service failed, falling back to backend API:', errorInfo.message);
+        try {
+          // Fallback to backend API
+          const apiResult = await apiClient.generateCoverLetter({
+            resume_data: resumeData,
+            job_description: jobDescription || "Software Engineer position",
+            company_name: companyName,
+            role: position,
+          });
+          coverLetterText = apiResult.cover_letter;
+        } catch (fallbackError) {
+          // If fallback also fails, throw the original OpenAI error
+          throw error;
+        }
+      }
 
-      // Convert API response to component format
+      // Convert to component format
       const result: CoverLetterResult = {
-        coverLetter: apiResult.cover_letter,
+        coverLetter: coverLetterText,
         subject: `Application for ${position} Position at ${companyName}`,
         highlights: skills?.slice(0, 3) || [],
       };
@@ -83,7 +104,10 @@ export function CoverLetterTab() {
       toast.success("Cover letter generated successfully!");
     } catch (error) {
       console.error("Error generating cover letter:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to generate cover letter");
+      const errorInfo = handleOpenAIError(error);
+      toast.error(errorInfo.message, {
+        description: errorInfo.actionable,
+      });
     } finally {
       setIsGenerating(false);
     }

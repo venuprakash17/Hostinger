@@ -1,7 +1,7 @@
 """Academic structure management API"""
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, func
 from typing import List, Optional
 from datetime import datetime
 from app.core.database import get_db
@@ -13,6 +13,7 @@ from app.models.academic import (
     Section,
     SubjectAssignment,
     Period,
+    FacultySectionAssignment,
 )
 from app.models.user import User, UserRole, RoleEnum
 from app.models.profile import Profile
@@ -644,7 +645,8 @@ async def get_sections(
     if not include_inactive:
         query = query.filter(Section.is_active == True)
 
-    sections = query.order_by(Section.name.asc()).all()
+    from app.core.db_utils import safe_list_query
+    sections = safe_list_query(db, query.order_by(Section.name.asc()))
 
     results: List[SectionResponse] = []
     for section in sections:
@@ -1067,4 +1069,499 @@ async def get_periods(
         query = query.filter(Period.college_id == college_id)
     
     return query.filter(Period.is_active == True).order_by(Period.number).all()
+
+
+# ==================== Auto-populate Sections from Students ====================
+
+@router.post("/sections/auto-populate", response_model=List[SectionResponse], status_code=status.HTTP_201_CREATED)
+async def auto_populate_sections(
+    college_id: Optional[int] = None,
+    current_user_tuple = Depends(get_current_admin_or_super_or_hod),
+    db: Session = Depends(get_db)
+):
+    """Auto-populate sections from student data (format: department-year-section, e.g., 'cse-3rd year - A')
+    
+    This endpoint:
+    1. Scans all student profiles
+    2. Extracts unique combinations of (department, year, section)
+    3. Creates sections with display_name format: '{dept}-{year} - {section}'
+    4. Links students to these sections
+    """
+    from sqlalchemy import func
+    
+    current_user, is_super_admin, is_admin, is_hod, hod_department_id = current_user_tuple
+    
+    # Determine college_id
+    if is_super_admin:
+        if not college_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="college_id is required for super admin"
+            )
+    elif is_hod:
+        # Get college_id from HOD's department
+        if not hod_department_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="HOD must be associated with a department"
+            )
+        dept = db.query(Department).filter(Department.id == hod_department_id).first()
+        if not dept:
+            raise HTTPException(status_code=404, detail="HOD department not found")
+        college_id = dept.college_id
+    else:  # is_admin
+        profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
+        college_id = profile.college_id if profile else None
+        if not college_id:
+            raise HTTPException(status_code=400, detail="College admin must be associated with a college")
+    
+    # Get all students for this college
+    student_role = db.query(UserRole).filter(UserRole.role == RoleEnum.STUDENT).all()
+    student_user_ids = [sr.user_id for sr in student_role]
+    
+    # Get student profiles with department, year, and section
+    profiles = db.query(Profile).filter(
+        Profile.user_id.in_(student_user_ids),
+        Profile.college_id == college_id
+    ).all()
+    
+    # Group by department, year, section
+    section_map = {}  # key: (department, year_str, section_name) -> list of profile_ids
+    
+    for profile in profiles:
+        if not profile.department or not profile.present_year or not profile.section:
+            continue
+        
+        dept_name = profile.department.strip().lower()
+        year_str = profile.present_year.strip()
+        section_name = profile.section.strip().upper()
+        
+        key = (dept_name, year_str, section_name)
+        if key not in section_map:
+            section_map[key] = []
+        section_map[key].append(profile.user_id)
+    
+    created_sections = []
+    
+    for (dept_name, year_str, section_name), profile_ids in section_map.items():
+        # Get department_id
+        dept = db.query(Department).filter(
+            Department.college_id == college_id,
+            func.lower(Department.name) == dept_name
+        ).first()
+        
+        if not dept:
+            continue
+        
+        # Convert year_str to integer
+        year_int = None
+        if year_str:
+            year_str_lower = year_str.lower().strip()
+            if year_str_lower.startswith('1'):
+                year_int = 1
+            elif year_str_lower.startswith('2'):
+                year_int = 2
+            elif year_str_lower.startswith('3'):
+                year_int = 3
+            elif year_str_lower.startswith('4'):
+                year_int = 4
+            elif year_str_lower.startswith('5'):
+                year_int = 5
+        
+        # Create display name: "cse-3rd year - A"
+        dept_code = dept.code or dept.name.upper()[:3]
+        display_name = f"{dept_code.lower()}-{year_str} - {section_name}"
+        
+        # Check if section already exists
+        existing_section = db.query(Section).filter(
+            Section.college_id == college_id,
+            Section.department_id == dept.id,
+            Section.name == section_name,
+            Section.year == year_int
+        ).first()
+        
+        if existing_section:
+            # Update display_name if not set
+            if not existing_section.display_name:
+                existing_section.display_name = display_name
+                existing_section.is_auto_generated = True
+                db.flush()
+            
+            # Link students to this section
+            for user_id in profile_ids:
+                profile = db.query(Profile).filter(Profile.user_id == user_id).first()
+                if profile:
+                    profile.section_id = existing_section.id
+                    db.flush()
+            
+            created_sections.append(existing_section)
+        else:
+            # Create new section
+            section = Section(
+                name=section_name,
+                display_name=display_name,
+                college_id=college_id,
+                department_id=dept.id,
+                year=year_int,
+                year_str=year_str,
+                is_active=True,
+                is_auto_generated=True
+            )
+            db.add(section)
+            db.flush()
+            
+            # Link students to this section
+            for user_id in profile_ids:
+                profile = db.query(Profile).filter(Profile.user_id == user_id).first()
+                if profile:
+                    profile.section_id = section.id
+                    db.flush()
+            
+            created_sections.append(section)
+    
+    db.commit()
+    
+    # Refresh all sections
+    for section in created_sections:
+        db.refresh(section)
+    
+    return created_sections
+
+
+# ==================== Auto-distribute Students to Sections ====================
+
+@router.post("/sections/auto-distribute-students", response_model=dict, status_code=status.HTTP_200_OK)
+async def auto_distribute_students_to_sections(
+    college_id: Optional[int] = None,
+    department_id: Optional[int] = None,
+    year: Optional[str] = None,  # e.g., "1st", "2nd", "3rd", "4th"
+    max_students_per_section: Optional[int] = None,  # Optional limit per section
+    current_user_tuple = Depends(get_current_admin_or_super_or_hod),
+    db: Session = Depends(get_db)
+):
+    """Auto-distribute students to sections based on department and year
+    
+    This endpoint:
+    1. Finds all students for the given college/department/year
+    2. Finds or creates sections for that department/year
+    3. Distributes students evenly across sections
+    4. Updates student profiles with section_id
+    """
+    from sqlalchemy import func
+    from collections import defaultdict
+    
+    current_user, is_super_admin, is_admin, is_hod, hod_department_id = current_user_tuple
+    
+    # Determine college_id
+    if is_super_admin:
+        if not college_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="college_id is required for super admin"
+            )
+    elif is_hod:
+        if not hod_department_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="HOD must be associated with a department"
+            )
+        dept = db.query(Department).filter(Department.id == hod_department_id).first()
+        if not dept:
+            raise HTTPException(status_code=404, detail="HOD department not found")
+        college_id = dept.college_id
+        department_id = hod_department_id  # HOD can only distribute in their department
+    else:  # is_admin
+        profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
+        college_id = profile.college_id if profile else None
+        if not college_id:
+            raise HTTPException(status_code=400, detail="College admin must be associated with a college")
+    
+    # Get student profiles
+    query = db.query(Profile).join(User).join(UserRole).filter(
+        UserRole.role == RoleEnum.STUDENT,
+        Profile.college_id == college_id
+    )
+    
+    if department_id:
+        query = query.filter(Profile.department_id == department_id)
+    
+    if year:
+        query = query.filter(Profile.present_year == year)
+    
+    student_profiles = query.all()
+    
+    if not student_profiles:
+        return {
+            "message": "No students found to distribute",
+            "distributed_count": 0,
+            "details": []
+        }
+    
+    # Group students by department and year
+    students_by_dept_year = defaultdict(list)
+    for profile in student_profiles:
+        dept_id = profile.department_id
+        year_str = profile.present_year
+        
+        if dept_id and year_str:
+            students_by_dept_year[(dept_id, year_str)].append(profile)
+    
+    distributed_count = 0
+    details = []
+    
+    # Convert year_str to integer for section matching
+    year_mapping = {"1st": 1, "2nd": 2, "3rd": 3, "4th": 4, "5th": 5}
+    
+    for (dept_id, year_str), students in students_by_dept_year.items():
+        year_int = year_mapping.get(year_str.lower(), None)
+        
+        # Get all active sections for this department and year
+        sections_query = db.query(Section).filter(
+            Section.college_id == college_id,
+            Section.department_id == dept_id,
+            Section.is_active == True
+        )
+        
+        if year_int:
+            sections_query = sections_query.filter(Section.year == year_int)
+        
+        sections = sections_query.order_by(Section.name).all()
+        
+        if not sections:
+            # Create default sections if none exist
+            dept = db.query(Department).filter(Department.id == dept_id).first()
+            if dept:
+                dept_code = dept.code or dept.name.upper()[:3]
+                # Create sections A, B, C
+                for section_name in ['A', 'B', 'C']:
+                    section = Section(
+                        name=section_name,
+                        display_name=f"{dept_code.lower()}-{year_str} - {section_name}",
+                        college_id=college_id,
+                        department_id=dept_id,
+                        year=year_int,
+                        year_str=year_str,
+                        is_active=True,
+                        is_auto_generated=True
+                    )
+                    db.add(section)
+                    db.flush()
+                    sections.append(section)
+        
+        if not sections:
+            continue
+        
+        # Distribute students evenly across sections
+        num_sections = len(sections)
+        students_per_section = len(students) // num_sections
+        remainder = len(students) % num_sections
+        
+        section_index = 0
+        students_assigned = 0
+        
+        for i, student in enumerate(students):
+            # Apply max_students_per_section limit if specified
+            if max_students_per_section:
+                # Check if current section is full
+                current_section = sections[section_index]
+                students_in_section = db.query(Profile).filter(
+                    Profile.section_id == current_section.id
+                ).count()
+                
+                if students_in_section >= max_students_per_section:
+                    # Move to next section
+                    section_index = (section_index + 1) % num_sections
+                    if section_index == 0:
+                        # All sections are full, stop
+                        break
+            else:
+                # Even distribution
+                if i > 0 and i % (students_per_section + (1 if section_index < remainder else 0)) == 0:
+                    section_index = (section_index + 1) % num_sections
+            
+            # Assign student to section
+            student.section_id = sections[section_index].id
+            distributed_count += 1
+            students_assigned += 1
+            
+            details.append({
+                "student_id": student.user_id,
+                "student_name": student.full_name,
+                "section_id": sections[section_index].id,
+                "section_name": sections[section_index].name,
+                "department_id": dept_id,
+                "year": year_str
+            })
+    
+    db.commit()
+    
+    return {
+        "message": f"Distributed {distributed_count} students to sections",
+        "distributed_count": distributed_count,
+        "details": details
+    }
+
+
+# ==================== Faculty Section Assignment ====================
+
+@router.post("/faculty-sections/assign", status_code=status.HTTP_201_CREATED)
+async def assign_sections_to_faculty(
+    faculty_id: int = Body(...),
+    section_ids: List[int] = Body(...),
+    current_user_tuple = Depends(get_current_admin_or_super_or_hod),
+    db: Session = Depends(get_db)
+):
+    """Assign sections to faculty (Admin, Super Admin, or HOD)
+    
+    This allows faculty to view and manage students in their assigned sections.
+    """
+    
+    current_user, is_super_admin, is_admin, is_hod, hod_department_id = current_user_tuple
+    
+    # Verify faculty exists and is actually faculty
+    faculty = db.query(User).filter(User.id == faculty_id).first()
+    if not faculty:
+        raise HTTPException(status_code=404, detail="Faculty not found")
+    
+    faculty_roles = db.query(UserRole).filter(
+        UserRole.user_id == faculty_id,
+        UserRole.role == RoleEnum.FACULTY
+    ).first()
+    if not faculty_roles:
+        raise HTTPException(status_code=400, detail="User is not a faculty member")
+    
+    # Get faculty profile to check college/department
+    faculty_profile = db.query(Profile).filter(Profile.user_id == faculty_id).first()
+    if not faculty_profile:
+        raise HTTPException(status_code=400, detail="Faculty profile not found")
+    
+    assigned_sections = []
+    
+    for section_id in section_ids:
+        section = db.query(Section).filter(Section.id == section_id).first()
+        if not section:
+            continue
+        
+        # Verify section belongs to same college as faculty (unless super admin)
+        if not is_super_admin:
+            if faculty_profile.college_id != section.college_id:
+                continue
+            
+            # HOD can only assign sections from their department
+            if is_hod and hod_department_id:
+                if section.department_id != hod_department_id:
+                    continue
+        
+        # Check if assignment already exists
+        existing = db.query(FacultySectionAssignment).filter(
+            FacultySectionAssignment.faculty_id == faculty_id,
+            FacultySectionAssignment.section_id == section_id,
+            FacultySectionAssignment.is_active == True
+        ).first()
+        
+        if not existing:
+            assignment = FacultySectionAssignment(
+                faculty_id=faculty_id,
+                section_id=section_id,
+                assigned_by=current_user.id,
+                is_active=True
+            )
+            db.add(assignment)
+            assigned_sections.append(section_id)
+    
+    db.commit()
+    
+    return {
+        "message": f"Assigned {len(assigned_sections)} sections to faculty",
+        "faculty_id": faculty_id,
+        "section_ids": assigned_sections
+    }
+
+
+@router.get("/faculty-sections/{faculty_id}/students")
+async def get_faculty_assigned_students(
+    faculty_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get students assigned to faculty's sections
+    
+    Faculty can only see students from their assigned sections.
+    Admin/Super Admin can view any faculty's students.
+    """
+    # Check if current user is the faculty or admin/super admin
+    user_roles = db.query(UserRole).filter(UserRole.user_id == current_user.id).all()
+    role_names = [role.role for role in user_roles]
+    is_super_admin = RoleEnum.SUPER_ADMIN in role_names
+    is_admin = RoleEnum.ADMIN in role_names
+    
+    if not (is_super_admin or is_admin) and current_user.id != faculty_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view your own assigned students"
+        )
+    
+    # Get faculty's assigned sections
+    assignments = db.query(FacultySectionAssignment).filter(
+        FacultySectionAssignment.faculty_id == faculty_id,
+        FacultySectionAssignment.is_active == True
+    ).all()
+    
+    section_ids = [a.section_id for a in assignments]
+    
+    if not section_ids:
+        return {
+            "faculty_id": faculty_id,
+            "sections": [],
+            "students": [],
+            "total_students": 0
+        }
+    
+    # Get sections
+    sections = db.query(Section).filter(Section.id.in_(section_ids)).all()
+    
+    # Get students from these sections
+    student_role = db.query(UserRole).filter(UserRole.role == RoleEnum.STUDENT).all()
+    student_user_ids = [sr.user_id for sr in student_role]
+    
+    profiles = db.query(Profile).filter(
+        Profile.user_id.in_(student_user_ids),
+        Profile.section_id.in_(section_ids)
+    ).all()
+    
+    # Get user details
+    students = []
+    for profile in profiles:
+        user = db.query(User).filter(User.id == profile.user_id).first()
+        if user:
+            section = next((s for s in sections if s.id == profile.section_id), None)
+            students.append({
+                "id": user.id,
+                "email": user.email,
+                "full_name": profile.full_name,
+                "roll_number": profile.roll_number,
+                "department": profile.department,
+                "section": profile.section,
+                "section_id": profile.section_id,
+                "section_display_name": section.display_name if section else None,
+                "present_year": profile.present_year,
+                "college_id": profile.college_id
+            })
+    
+    return {
+        "faculty_id": faculty_id,
+        "sections": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "display_name": s.display_name,
+                "department_id": s.department_id,
+                "year": s.year,
+                "year_str": s.year_str
+            }
+            for s in sections
+        ],
+        "students": students,
+        "total_students": len(students)
+    }
 

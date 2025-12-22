@@ -58,10 +58,11 @@ export default function ManageStaff() {
   const [searchTerm, setSearchTerm] = useState("");
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [editFormData, setEditFormData] = useState({
     full_name: "",
     department: "",
-    subject_assignments: [] as Array<{ subject_id: number; semester_id?: number; section?: string; section_id?: number }>,
+    subject_assignments: [] as Array<{ subject_id: number; semester_id?: number; section?: string; section_id?: number; year?: string }>,
     handled_years: [] as string[],
     handled_sections: [] as string[],
   });
@@ -71,7 +72,7 @@ export default function ManageStaff() {
   const [semesters, setSemesters] = useState<any[]>([]);
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [sections, setSections] = useState<any[]>([]);
-  const [subjectAssignments, setSubjectAssignments] = useState<Array<{ subject_id: number; semester_id?: number; section?: string; section_id?: number }>>([]);
+  const [subjectAssignments, setSubjectAssignments] = useState<Array<{ subject_id: number; semester_id?: number; section?: string; section_id?: number; year?: string }>>([]);
   const [handledYears, setHandledYears] = useState<string[]>([]);
   const [handledSections, setHandledSections] = useState<string[]>([]);
   
@@ -86,7 +87,7 @@ export default function ManageStaff() {
   }, [sections]);
 
   // Helper function to get filtered sections for a subject assignment
-  const getFilteredSections = (assignment: { subject_id?: number; semester_id?: number }) => {
+  const getFilteredSections = (assignment: { subject_id?: number; semester_id?: number; year?: string }) => {
     if (!assignment.subject_id) {
       return []; // Don't show sections until subject is selected
     }
@@ -112,6 +113,16 @@ export default function ManageStaff() {
       filtered = filtered.filter((section: any) => 
         !section.semester_id || section.semester_id === assignment.semester_id
       );
+    }
+
+    // Filter by year if provided
+    if (assignment.year) {
+      // Convert year string (e.g., "1st") to integer (1) for comparison
+      const yearMap: { [key: string]: number } = { "1st": 1, "2nd": 2, "3rd": 3, "4th": 4, "5th": 5 };
+      const yearNum = yearMap[assignment.year.toLowerCase()];
+      if (yearNum) {
+        filtered = filtered.filter((section: any) => section.year === yearNum);
+      }
     }
 
     return filtered;
@@ -207,6 +218,10 @@ export default function ManageStaff() {
       } else {
         console.warn('No college_id in profile - admin may not be associated with a college');
       }
+      // Store current user ID to check if HOD is editing themselves
+      if (profile.user_id) {
+        setCurrentUserId(profile.user_id);
+      }
     } catch (error) {
       console.error('Error fetching profile:', error);
     }
@@ -244,6 +259,7 @@ export default function ManageStaff() {
           semester_id: a.semester_id,
           section: a.section,
           section_id: a.section_id,
+          year: a.year,
         }));
       } catch (error) {
         console.error('Error fetching subject assignments:', error);
@@ -287,6 +303,7 @@ export default function ManageStaff() {
             semester_id: assignment.semester_id || undefined,
             section: assignment.section || undefined,
             section_id: assignment.section_id || undefined,
+            year: assignment.year || undefined,
           }));
         } else {
           // If no valid assignments, send empty array to clear all assignments
@@ -343,6 +360,7 @@ export default function ManageStaff() {
             semester_id: assignment.semester_id || undefined,
             section: assignment.section || undefined,
             section_id: assignment.section_id || undefined,
+            year: assignment.year || undefined,
           }));
         }
       }
@@ -621,6 +639,39 @@ export default function ManageStaff() {
                           </Select>
                         </div>
                         <div className="flex-1 space-y-2">
+                          <Label className="text-xs">Year</Label>
+                          <Select
+                            value={assignment.year || "none"}
+                            onValueChange={(value) => {
+                              const updated = [...subjectAssignments];
+                              updated[index].year = value !== "none" ? value : undefined;
+                              // Clear section if it doesn't match the new year
+                              if (updated[index].section_id) {
+                                const filteredSections = getFilteredSections(updated[index]);
+                                const currentSection = filteredSections.find((s: any) => s.id === updated[index].section_id);
+                                if (!currentSection) {
+                                  updated[index].section_id = undefined;
+                                  updated[index].section = "";
+                                }
+                              }
+                              setSubjectAssignments(updated);
+                            }}
+                            disabled={!assignment.subject_id}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder={assignment.subject_id ? "Select Year" : "Select subject first"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">None</SelectItem>
+                              <SelectItem value="1st">1st Year</SelectItem>
+                              <SelectItem value="2nd">2nd Year</SelectItem>
+                              <SelectItem value="3rd">3rd Year</SelectItem>
+                              <SelectItem value="4th">4th Year</SelectItem>
+                              <SelectItem value="5th">5th Year</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex-1 space-y-2">
                           <Label className="text-xs">Section</Label>
                           <Select
                             value={assignment.section_id?.toString() || "none"}
@@ -674,7 +725,7 @@ export default function ManageStaff() {
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => setSubjectAssignments([...subjectAssignments, { subject_id: 0, section: "", section_id: undefined }])}
+                      onClick={() => setSubjectAssignments([...subjectAssignments, { subject_id: 0, section: "", section_id: undefined, year: undefined }])}
                     >
                       + Add Subject Assignment
                     </Button>
@@ -762,24 +813,40 @@ export default function ManageStaff() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="editDepartment">Department</Label>
-              <Select 
-                value={editFormData.department} 
-                onValueChange={(value) => setEditFormData({ ...editFormData, department: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select Department" />
-                </SelectTrigger>
-                <SelectContent>
-                  {departments.map((dept) => (
-                    <SelectItem key={dept.id} value={dept.code || dept.name}>
-                      {dept.name} {dept.code ? `(${dept.code})` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Hide department field if HOD is editing themselves - they cannot change their department */}
+            {!(selectedStaff?.roles.some(r => r.role === 'hod') && isHOD && currentUserId === selectedStaff.id) && (
+              <div className="space-y-2">
+                <Label htmlFor="editDepartment">Department</Label>
+                <Select 
+                  value={editFormData.department} 
+                  onValueChange={(value) => setEditFormData({ ...editFormData, department: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.code || dept.name}>
+                        {dept.name} {dept.code ? `(${dept.code})` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            
+            {/* Show read-only department info if HOD is editing themselves */}
+            {selectedStaff?.roles.some(r => r.role === 'hod') && isHOD && currentUserId === selectedStaff.id && (
+              <div className="space-y-2">
+                <Label htmlFor="editDepartment">Department</Label>
+                <div className="px-3 py-2 border rounded-md bg-muted text-muted-foreground">
+                  {editFormData.department || selectedStaff.department || "N/A"}
+                  <p className="text-xs mt-1 text-muted-foreground">
+                    HOD cannot change their department. To change department, please delete and recreate the HOD account.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {selectedStaff && selectedStaff.roles.some(r => r.role === 'faculty') && (
               <div className="space-y-4 border p-4 rounded-lg">
@@ -850,6 +917,39 @@ export default function ManageStaff() {
                       </Select>
                     </div>
                     <div className="flex-1 space-y-2">
+                      <Label className="text-xs">Year</Label>
+                      <Select
+                        value={assignment.year || "none"}
+                        onValueChange={(value) => {
+                          const updated = [...editFormData.subject_assignments];
+                          updated[index].year = value !== "none" ? value : undefined;
+                          // Clear section if it doesn't match the new year
+                          if (updated[index].section_id) {
+                            const filteredSections = getFilteredSections(updated[index]);
+                            const currentSection = filteredSections.find((s: any) => s.id === updated[index].section_id);
+                            if (!currentSection) {
+                              updated[index].section_id = undefined;
+                              updated[index].section = "";
+                            }
+                          }
+                          setEditFormData({ ...editFormData, subject_assignments: updated });
+                        }}
+                        disabled={!assignment.subject_id}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={assignment.subject_id ? "Select Year" : "Select subject first"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None</SelectItem>
+                          <SelectItem value="1st">1st Year</SelectItem>
+                          <SelectItem value="2nd">2nd Year</SelectItem>
+                          <SelectItem value="3rd">3rd Year</SelectItem>
+                          <SelectItem value="4th">4th Year</SelectItem>
+                          <SelectItem value="5th">5th Year</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex-1 space-y-2">
                       <Label className="text-xs">Section</Label>
                       <Select
                         value={assignment.section_id?.toString() || "none"}
@@ -908,7 +1008,7 @@ export default function ManageStaff() {
                   size="sm"
                   onClick={() => setEditFormData({ 
                     ...editFormData, 
-                    subject_assignments: [...editFormData.subject_assignments, { subject_id: 0, section: "", section_id: undefined }]
+                    subject_assignments: [...editFormData.subject_assignments, { subject_id: 0, section: "", section_id: undefined, year: undefined }]
                   })}
                 >
                   + Add Subject Assignment

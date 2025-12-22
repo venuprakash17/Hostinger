@@ -8,8 +8,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Code, Trash2, Loader2, Download } from "lucide-react";
+import { Plus, Code, Trash2, Loader2, Code2, CheckCircle2, ArrowUp } from "lucide-react";
 import { FileUpload } from "@/components/ui/file-upload";
+import { Badge } from "@/components/ui/badge";
 
 interface CodingProblem {
   id: number;
@@ -29,6 +30,7 @@ export default function ManageCodingProblems() {
   const [sections, setSections] = useState<any[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [userRoles, setUserRoles] = useState<string[]>([]);
+  const [assignedSections, setAssignedSections] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     title: "",
     description: "",
@@ -38,9 +40,9 @@ export default function ManageCodingProblems() {
     sample_output: "",
     tags: [] as string[],
     expiry_date: "",
-    scope_type: "section" as "college" | "department" | "section",
-    section_id: undefined as number | undefined,
-    year: ""
+    section: "", // Section name (e.g., "A", "B") - optional
+    year: "", // Year (1, 2, 3, 4) - optional
+    test_cases: [] as Array<{stdin: string; expected_output: string; is_public: boolean}>
   });
   const { toast } = useToast();
 
@@ -48,6 +50,7 @@ export default function ManageCodingProblems() {
     fetchProblems();
     fetchUserInfo();
     fetchSections();
+    fetchAssignedSections();
   }, []);
 
   const fetchUserInfo = async () => {
@@ -56,15 +59,6 @@ export default function ManageCodingProblems() {
       setUserProfile(profile);
       const roles = await apiClient.getCurrentUserRoles();
       setUserRoles(roles.map((r: any) => r.role));
-      
-      // Set default scope based on role
-      if (roles.some((r: any) => r.role === "admin")) {
-        setFormData(prev => ({ ...prev, scope_type: "college" }));
-      } else if (roles.some((r: any) => r.role === "hod")) {
-        setFormData(prev => ({ ...prev, scope_type: "department" }));
-      } else {
-        setFormData(prev => ({ ...prev, scope_type: "section" }));
-      }
     } catch (error) {
       console.error("Error fetching user info:", error);
     }
@@ -82,6 +76,22 @@ export default function ManageCodingProblems() {
     }
   };
 
+  const fetchAssignedSections = async () => {
+    try {
+      const profile = await apiClient.getCurrentUserProfile();
+      if (profile?.user_id) {
+        // Get assigned students which includes section info
+        const data = await apiClient.getFacultyAssignedStudents(profile.user_id);
+        if (data?.sections) {
+          setAssignedSections(data.sections || []);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching assigned sections:", error);
+      // If API fails, we'll use all sections instead
+    }
+  };
+
   const fetchProblems = async () => {
     try {
       setLoading(true);
@@ -91,7 +101,7 @@ export default function ManageCodingProblems() {
       console.error("Error fetching coding problems:", error);
       toast({ 
         title: "Error", 
-        description: error.message || "Failed to load coding problems. Note: Only super admins can manage coding problems.", 
+        description: error.message || "Failed to load coding problems.", 
         variant: "destructive" 
       });
     } finally {
@@ -106,6 +116,11 @@ export default function ManageCodingProblems() {
       toast({ title: "Error", description: "Title and description are required", variant: "destructive" });
       return;
     }
+
+    if (formData.test_cases.length === 0) {
+      toast({ title: "Error", description: "At least one test case is required", variant: "destructive" });
+      return;
+    }
     
     try {
       const problemData: any = {
@@ -117,26 +132,52 @@ export default function ManageCodingProblems() {
         sample_output: formData.sample_output || undefined,
         tags: formData.tags.length > 0 ? formData.tags : undefined,
         is_active: true,
-        scope_type: formData.scope_type,
+        test_cases: formData.test_cases.map(tc => ({
+          stdin: tc.stdin,
+          expected_output: tc.expected_output,
+          is_public: tc.is_public
+        })),
         expiry_date: formData.expiry_date ? new Date(formData.expiry_date).toISOString() : undefined
       };
       
-      // Add scope-specific fields
+      // Add college_id
       if (userProfile?.college_id) {
         problemData.college_id = userProfile.college_id;
       }
       if (userProfile?.department) {
         problemData.department = userProfile.department;
       }
-      if (formData.scope_type === "section" && formData.section_id) {
-        problemData.section_id = formData.section_id;
-      }
-      // Year is important for visibility - make it more prominent
-      if (formData.year) {
-        problemData.year = formData.year;
-      } else if (userProfile?.present_year) {
-        // Auto-set to current year if not specified
-        problemData.year = userProfile.present_year;
+      
+      // Visibility Logic:
+      // 1. Both section and year empty → whole college
+      // 2. Only section given (e.g., "A") → all sections with that name in branch (HOD) or assigned sections (faculty)
+      // 3. Section + year → only those specific sections
+      // 4. Nothing → all students assigned to faculty
+      
+      if (!formData.section && !formData.year) {
+        // Both empty → whole college
+        problemData.scope_type = "college";
+      } else if (formData.section && !formData.year) {
+        // Only section given → all sections with that name
+        problemData.scope_type = "section";
+        problemData.section = formData.section; // Section name (e.g., "A")
+        // For faculty: only assigned sections with this name
+        // For HOD: all sections with this name in department
+      } else if (formData.section && formData.year) {
+        // Section + year → specific sections
+        problemData.scope_type = "section";
+        problemData.section = formData.section;
+        problemData.year = parseInt(formData.year);
+        problemData.year_str = `${formData.year}${formData.year === "1" ? 'st' : formData.year === "2" ? 'nd' : formData.year === "3" ? 'rd' : 'th'}`;
+      } else if (!formData.section && formData.year) {
+        // Only year → department-wide for that year
+        problemData.scope_type = "department";
+        problemData.year = parseInt(formData.year);
+        problemData.year_str = `${formData.year}${formData.year === "1" ? 'st' : formData.year === "2" ? 'nd' : formData.year === "3" ? 'rd' : 'th'}`;
+      } else {
+        // Default: all students assigned to faculty
+        problemData.scope_type = "section";
+        // Will be filtered by backend based on faculty assignments
       }
       
       await apiClient.createCodingProblem(problemData);
@@ -152,9 +193,9 @@ export default function ManageCodingProblems() {
         sample_output: "",
         tags: [],
         expiry_date: "",
-        scope_type: formData.scope_type,
-        section_id: undefined,
-        year: ""
+        section: "",
+        year: "",
+        test_cases: []
       });
       fetchProblems();
     } catch (error: any) {
@@ -193,6 +234,19 @@ export default function ManageCodingProblems() {
     }
   };
 
+  // Get unique section names from assigned sections or all sections
+  const getAvailableSectionNames = () => {
+    const sourceSections = userRoles.includes("faculty") && assignedSections.length > 0 
+      ? assignedSections 
+      : sections;
+    
+    const uniqueNames = new Set<string>();
+    sourceSections.forEach((s: any) => {
+      if (s.name) uniqueNames.add(s.name);
+    });
+    return Array.from(uniqueNames).sort();
+  };
+
   return (
     <div className="container mx-auto p-6">
       <div className="flex justify-between items-center mb-6">
@@ -224,13 +278,13 @@ export default function ManageCodingProblems() {
                 Add Problem
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Add New Coding Problem</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <Label>Problem Title</Label>
+                  <Label>Problem Title *</Label>
                   <Input
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
@@ -238,7 +292,7 @@ export default function ManageCodingProblems() {
                   />
                 </div>
                 <div>
-                  <Label>Description</Label>
+                  <Label>Description *</Label>
                   <Textarea
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
@@ -288,83 +342,214 @@ export default function ManageCodingProblems() {
                   />
                 </div>
 
-                {/* Scope Selection */}
-                <div>
-                  <Label>Scope</Label>
-                  <Select 
-                    value={formData.scope_type} 
-                    onValueChange={(value: "college" | "department" | "section") => {
-                      setFormData({ ...formData, scope_type: value, section_id: undefined });
-                    }}
-                    disabled={userRoles.includes("super_admin")}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {userRoles.includes("admin") && <SelectItem value="college">Entire College</SelectItem>}
-                      {(userRoles.includes("admin") || userRoles.includes("hod")) && (
-                        <SelectItem value="department">Department/Year</SelectItem>
-                      )}
-                      <SelectItem value="section">Specific Section</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {formData.scope_type === "college" && "Visible to all students in your college"}
-                    {formData.scope_type === "department" && "Visible to students in your department and year"}
-                    {formData.scope_type === "section" && "Visible to students in selected section"}
-                  </p>
-                </div>
-
-                {/* Section Selection (for faculty) */}
-                {formData.scope_type === "section" && (
+                {/* Section and Year Columns */}
+                <div className="grid grid-cols-2 gap-4 border-t pt-4">
                   <div>
-                    <Label>Section</Label>
+                    <Label>Section (Optional)</Label>
                     <Select 
-                      value={formData.section_id?.toString() || ""} 
-                      onValueChange={(value) => {
-                        setFormData({ ...formData, section_id: value ? parseInt(value) : undefined });
-                      }}
-                      required={formData.scope_type === "section"}
+                      value={formData.section} 
+                      onValueChange={(value) => setFormData({ ...formData, section: value })}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select section" />
+                        <SelectValue placeholder="Select section (e.g., A, B)" />
                       </SelectTrigger>
                       <SelectContent>
-                        {sections.map((section) => (
-                          <SelectItem key={section.id} value={section.id.toString()}>
-                            {section.name} {section.year && `(${section.year})`}
+                        <SelectItem value="">None (All Sections)</SelectItem>
+                        {getAvailableSectionNames().map((name) => (
+                          <SelectItem key={name} value={name}>
+                            Section {name}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Leave empty for all sections. If only section is given, visible to all {formData.section} sections in your branch.
+                    </p>
                   </div>
-                )}
+                  <div>
+                    <Label>Year (Optional)</Label>
+                    <Select 
+                      value={formData.year} 
+                      onValueChange={(value) => setFormData({ ...formData, year: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select year" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">None (All Years)</SelectItem>
+                        <SelectItem value="1">1st Year</SelectItem>
+                        <SelectItem value="2">2nd Year</SelectItem>
+                        <SelectItem value="3">3rd Year</SelectItem>
+                        <SelectItem value="4">4th Year</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Leave empty for all years. If both empty, visible to whole college.
+                    </p>
+                  </div>
+                </div>
+                <div className="bg-muted/50 p-3 rounded-lg text-sm">
+                  <p className="font-medium mb-1">Visibility Rules:</p>
+                  <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
+                    <li>Both empty → Whole college</li>
+                    <li>Only section → All {formData.section || "selected"} sections in your branch</li>
+                    <li>Section + Year → Only {formData.section || "selected"} section of {formData.year ? `${formData.year}${formData.year === "1" ? "st" : formData.year === "2" ? "nd" : formData.year === "3" ? "rd" : "th"}` : "selected"} year</li>
+                    <li>Only year → All sections of {formData.year ? `${formData.year}${formData.year === "1" ? "st" : formData.year === "2" ? "nd" : formData.year === "3" ? "rd" : "th"}` : "selected"} year in your department</li>
+                  </ul>
+                </div>
 
-                {/* Year Selection - Available for all scope types */}
-                <div>
-                  <Label>Year *</Label>
-                  <Select 
-                    value={formData.year || userProfile?.present_year || ""} 
-                    onValueChange={(value) => setFormData({ ...formData, year: value })}
-                    required
+                {/* Test Cases Section */}
+                <div className="space-y-4 border-t pt-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold">Test Cases *</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Add test cases for evaluating solutions. Public test cases are visible to students.
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="text-xs">
+                      {formData.test_cases.length} test case{formData.test_cases.length !== 1 ? 's' : ''}
+                    </Badge>
+                  </div>
+                  
+                  {formData.test_cases.length === 0 && (
+                    <Card className="p-6 border-dashed">
+                      <div className="text-center text-muted-foreground">
+                        <Code2 className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No test cases added yet</p>
+                        <p className="text-xs mt-1">Add at least one test case to enable code evaluation</p>
+                      </div>
+                    </Card>
+                  )}
+                  
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {formData.test_cases.map((testCase, index) => (
+                      <Card key={index} className="p-4 border-2 hover:border-primary/50 transition-colors">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <Badge variant={testCase.is_public ? "default" : "secondary"} className="text-xs">
+                              Test Case {index + 1} - {testCase.is_public ? "Public" : "Hidden"}
+                            </Badge>
+                            {testCase.is_public && (
+                              <Badge variant="outline" className="text-xs text-green-600 border-green-600">
+                                Visible to Students
+                              </Badge>
+                            )}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setFormData({
+                                ...formData,
+                                test_cases: formData.test_cases.filter((_, i) => i !== index)
+                              });
+                            }}
+                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs font-medium flex items-center gap-1">
+                              <Code2 className="h-3 w-3" />
+                              Input (stdin) *
+                            </Label>
+                            <Textarea
+                              value={testCase.stdin}
+                              onChange={(e) => {
+                                const updated = [...formData.test_cases];
+                                updated[index].stdin = e.target.value;
+                                setFormData({ ...formData, test_cases: updated });
+                              }}
+                              rows={4}
+                              className="font-mono text-xs resize-none"
+                              placeholder="Enter test input"
+                              required
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs font-medium flex items-center gap-1">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Expected Output *
+                            </Label>
+                            <Textarea
+                              value={testCase.expected_output}
+                              onChange={(e) => {
+                                const updated = [...formData.test_cases];
+                                updated[index].expected_output = e.target.value;
+                                setFormData({ ...formData, test_cases: updated });
+                              }}
+                              rows={4}
+                              className="font-mono text-xs resize-none"
+                              placeholder="Enter expected output"
+                              required
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center justify-between pt-2 border-t">
+                          <label className="flex items-center space-x-2 cursor-pointer group">
+                            <input
+                              type="checkbox"
+                              checked={testCase.is_public}
+                              onChange={(e) => {
+                                const updated = [...formData.test_cases];
+                                updated[index].is_public = e.target.checked;
+                                setFormData({ ...formData, test_cases: updated });
+                              }}
+                              className="rounded"
+                            />
+                            <span className="text-xs group-hover:text-foreground transition-colors">
+                              {testCase.is_public ? (
+                                <span className="text-green-600 font-medium">Public - Students can see this test case</span>
+                              ) : (
+                                <span className="text-muted-foreground">Hidden - Only used for evaluation</span>
+                              )}
+                            </span>
+                          </label>
+                          {index > 0 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                const updated = [...formData.test_cases];
+                                [updated[index - 1], updated[index]] = [updated[index], updated[index - 1]];
+                                setFormData({ ...formData, test_cases: updated });
+                              }}
+                              className="h-7 text-xs"
+                            >
+                              <ArrowUp className="h-3 w-3 mr-1" />
+                              Move Up
+                            </Button>
+                          )}
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                  
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setFormData({
+                        ...formData,
+                        test_cases: [
+                          ...formData.test_cases,
+                          { stdin: "", expected_output: "", is_public: true }
+                        ]
+                      });
+                    }}
+                    className="w-full"
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select year" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1">1st Year</SelectItem>
-                      <SelectItem value="2">2nd Year</SelectItem>
-                      <SelectItem value="3">3rd Year</SelectItem>
-                      <SelectItem value="4">4th Year</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Only students of this year will see this problem
-                    {formData.scope_type === "college" && " (across your entire college)"}
-                    {formData.scope_type === "department" && " (in your department)"}
-                    {formData.scope_type === "section" && " (in the selected section)"}
-                  </p>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Test Case
+                  </Button>
                 </div>
 
                 {/* Expiry Date */}

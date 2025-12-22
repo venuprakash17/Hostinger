@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { BookOpen, Plus, Edit, Trash2, Search } from "lucide-react";
+import { BookOpen, Plus, Edit, Trash2, Search, Upload, Download } from "lucide-react";
+import { FileUpload } from "@/components/ui/file-upload";
 import { apiClient } from "@/integrations/api/client";
 import { 
   Table, 

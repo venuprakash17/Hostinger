@@ -28,6 +28,9 @@
     "test:merge-reports": "npx mochawesome-merge cypress/reports/*.json -o cypress/reports/merged-report.json && npx marge cypress/reports/merged-report.json -o cypress/reports/html --reportTitle 'Elevate Edu E2E Test Report'"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@hookform/resolvers": "^3.10.0",
     "@monaco-editor/react": "^4.7.0",
     "@radix-ui/react-accordion": "^1.2.11",

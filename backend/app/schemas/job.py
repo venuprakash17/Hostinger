@@ -19,6 +19,7 @@ class JobBase(BaseModel):
     requirements: Optional[List[str]] = None
     rounds: Optional[List[str]] = None
     deadline: Optional[datetime] = None
+    apply_link: Optional[str] = None  # External application URL
     is_active: bool = True
 
 
@@ -42,6 +43,7 @@ class JobUpdate(BaseModel):
     requirements: Optional[List[str]] = None
     rounds: Optional[List[str]] = None
     deadline: Optional[datetime] = None
+    apply_link: Optional[str] = None  # External application URL
     is_active: Optional[bool] = None
     college_id: Optional[int] = None  # For super admin to change college
 

@@ -30,9 +30,11 @@ const AdminManageJobs = lazy(() => import("./pages/admin/ManageJobs"));
 const ManageDepartments = lazy(() => import("./pages/admin/ManageDepartments"));
 const ManageSubjects = lazy(() => import("./pages/admin/ManageSubjects"));
 const ManageColleges = lazy(() => import("./pages/superadmin/ManageColleges"));
+const ManageInstitutions = lazy(() => import("./pages/superadmin/ManageInstitutions"));
 const ManageUsers = lazy(() => import("./pages/superadmin/ManageUsers"));
 const AllStudents = lazy(() => import("./pages/superadmin/AllStudents"));
 const ManageCompanies = lazy(() => import("./pages/superadmin/ManageCompanies"));
+const ManageCompanyTraining = lazy(() => import("./pages/superadmin/ManageCompanyTraining"));
 const ManageGlobalContent = lazy(() => import("./pages/superadmin/ManageGlobalContent"));
 const SuperAdminDashboard = lazy(() => import("./pages/superadmin/SuperAdminDashboard"));
 const SuperAdminManageJobs = lazy(() => import("./pages/superadmin/ManageJobs"));
@@ -42,15 +44,20 @@ const ManageQuizzes = lazy(() => import("./pages/faculty/ManageQuizzes"));
 const ManageAttendance = lazy(() => import("./pages/faculty/ManageAttendance"));
 const ManageCodingProblems = lazy(() => import("./pages/faculty/ManageCodingProblems"));
 const PlacementTraining = lazy(() => import("./pages/student/PlacementTraining"));
+const CompanyTrainingNew = lazy(() => import("./pages/student/CompanyTrainingNew"));
+const CompanyTrainingRole = lazy(() => import("./pages/student/CompanyTrainingRole"));
+const CompanyTrainingRound = lazy(() => import("./pages/student/CompanyTrainingRound"));
+const TakeQuiz = lazy(() => import("./pages/student/TakeQuiz"));
 const TrainingSessions = lazy(() => import("./pages/student/TrainingSessions"));
 const ApplicationTracker = lazy(() => import("./pages/ApplicationTracker"));
-const Certificates = lazy(() => import("./pages/Certificates"));
-const ReviewCertificates = lazy(() => import("./pages/admin/ReviewCertificates"));
 const MockInterviews = lazy(() => import("./pages/MockInterviews"));
+const MockInterviewAI = lazy(() => import("./pages/MockInterviewAI"));
 const ManageMockInterviews = lazy(() => import("./pages/admin/ManageMockInterviews"));
 const HallTickets = lazy(() => import("./pages/HallTickets"));
 const SuperAdminPromotions = lazy(() => import("./pages/superadmin/Promotions"));
 const ManageAnnouncements = lazy(() => import("./pages/superadmin/ManageAnnouncements"));
+const AcademicYearMigration = lazy(() => import("./pages/superadmin/AcademicYearMigration"));
+const BulkUploadAcademicStructure = lazy(() => import("./pages/admin/BulkUploadAcademicStructure"));
 const JobAggregation = lazy(() => import("./pages/admin/JobAggregation"));
 const Profile = lazy(() => import("./pages/Profile"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -69,7 +76,7 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5 * 60 * 1000, // 5 minutes - data stays fresh
-      cacheTime: 10 * 60 * 1000, // 10 minutes - keep in cache
+      gcTime: 10 * 60 * 1000, // 10 minutes - keep in cache (formerly cacheTime)
       refetchOnWindowFocus: false, // Don't refetch on window focus
       retry: 1, // Only retry once on failure
     },
@@ -215,6 +222,30 @@ const App = () => (
               } 
             />
             <Route 
+              path="/company-training" 
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <CompanyTrainingNew />
+                </Suspense>
+              } 
+            />
+            <Route 
+              path="/company-training/role/:roleId" 
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <CompanyTrainingRole />
+                </Suspense>
+              } 
+            />
+            <Route 
+              path="/company-training/round/:roundId" 
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <CompanyTrainingRound />
+                </Suspense>
+              } 
+            />
+            <Route 
               path="/applications" 
               element={
                 <Suspense fallback={<PageLoader />}>
@@ -223,10 +254,10 @@ const App = () => (
               } 
             />
             <Route 
-              path="/certificates" 
+              path="/mock-interview" 
               element={
                 <Suspense fallback={<PageLoader />}>
-                  <Certificates />
+                  <MockInterviewAI />
                 </Suspense>
               } 
             />
@@ -423,14 +454,6 @@ const App = () => (
               } 
             />
             <Route 
-              path="/admin/certificates" 
-              element={
-                <Suspense fallback={<PageLoader />}>
-                  <ReviewCertificates />
-                </Suspense>
-              } 
-            />
-            <Route 
               path="/admin/mock-interviews" 
               element={
                 <Suspense fallback={<PageLoader />}>
@@ -451,6 +474,14 @@ const App = () => (
               element={
                 <Suspense fallback={<PageLoader />}>
                   <ManageSections />
+                </Suspense>
+              } 
+            />
+            <Route 
+              path="/admin/bulk-upload-academic-structure" 
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <BulkUploadAcademicStructure />
                 </Suspense>
               } 
             />
@@ -515,6 +546,14 @@ const App = () => (
               } 
             />
             <Route 
+              path="/superadmin/institutions" 
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <ManageInstitutions />
+                </Suspense>
+              } 
+            />
+            <Route 
               path="/superadmin/users" 
               element={
                 <Suspense fallback={<PageLoader />}>
@@ -555,6 +594,14 @@ const App = () => (
               } 
             />
             <Route 
+              path="/superadmin/company-training" 
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <ManageCompanyTraining />
+                </Suspense>
+              } 
+            />
+            <Route 
               path="/superadmin/promotions" 
               element={
                 <Suspense fallback={<PageLoader />}>
@@ -567,6 +614,14 @@ const App = () => (
               element={
                 <Suspense fallback={<PageLoader />}>
                   <ManageAnnouncements />
+                </Suspense>
+              } 
+            />
+            <Route 
+              path="/superadmin/academic-year-migration" 
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <AcademicYearMigration />
                 </Suspense>
               } 
             />

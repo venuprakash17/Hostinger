@@ -1,0 +1,10 @@
+email,full_name,role,branch_id,user_id
+hod.cs@svnapro.com,Dr. John Doe,hod,CSE001,HOD001
+faculty.cs1@svnapro.com,Dr. Jane Smith,faculty,CSE001,FAC001
+faculty.cs2@svnapro.com,Dr. Bob Wilson,faculty,CSE001,FAC002
+hod.ece@svnapro.com,Dr. Alice Brown,hod,ECE001,HOD002
+faculty.ece1@svnapro.com,Dr. Charlie Davis,faculty,ECE001,FAC003
+faculty.me@svnapro.com,Dr. David Miller,faculty,ME001,FAC004
+faculty.eee@svnapro.com,Dr. Emma Wilson,faculty,EEE001,FAC005
+faculty.aiml@svnapro.com,Dr. Frank Johnson,faculty,AIM001,FAC006
+

@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Briefcase, Plus, Edit, Trash2, X, Loader2, Building2, MapPin, Calendar, IndianRupee, Users, CheckCircle2, Download, Search, Filter, CheckSquare, Square } from "lucide-react";
+import { Briefcase, Plus, Edit, Trash2, X, Loader2, Building2, MapPin, Calendar, IndianRupee, Users, CheckCircle2, Download, Search, Filter, CheckSquare, Square, ExternalLink, Link2 } from "lucide-react";
 import { FileUpload } from "@/components/ui/file-upload";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -29,6 +29,7 @@ interface Job {
   requirements: string[] | null;
   rounds: string[] | null;
   deadline: string | null;
+  apply_link: string | null;
   is_active: boolean;
   college_id: number | null;
   posted_date: string;
@@ -63,6 +64,7 @@ export default function ManageJobs() {
     requirements: [] as string[],
     rounds: [] as string[],
     deadline: "",
+    apply_link: "",
     is_active: true,
   });
 
@@ -143,6 +145,7 @@ export default function ManageJobs() {
         requirements: formData.requirements.length > 0 ? formData.requirements : undefined,
         rounds: formData.rounds.length > 0 ? formData.rounds : undefined,
         deadline: formData.deadline ? new Date(formData.deadline).toISOString() : undefined,
+        apply_link: formData.apply_link || undefined,
         is_active: formData.is_active,
         // college_id is optional - NULL means global (available to all students)
       };
@@ -185,6 +188,7 @@ export default function ManageJobs() {
       requirements: job.requirements || [],
       rounds: job.rounds || [],
       deadline: job.deadline ? new Date(job.deadline).toISOString().slice(0, 16) : "",
+      apply_link: job.apply_link || "",
       is_active: job.is_active,
     });
     setOpen(true);
@@ -222,6 +226,7 @@ export default function ManageJobs() {
       requirements: [],
       rounds: [],
       deadline: "",
+      apply_link: "",
       is_active: true,
     });
     setTempRequirement("");
@@ -753,6 +758,23 @@ export default function ManageJobs() {
                   )}
                 </div>
 
+                {/* Application Link */}
+                <div className="space-y-4 border-b pb-4">
+                  <h3 className="font-semibold">Application Link</h3>
+                  <div>
+                    <Label>External Application URL</Label>
+                    <Input
+                      type="url"
+                      value={formData.apply_link}
+                      onChange={(e) => setFormData({ ...formData, apply_link: e.target.value })}
+                      placeholder="https://company.com/careers/apply or leave empty for internal application"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      If provided, students will be redirected to this external link. Otherwise, they can apply through the platform.
+                    </p>
+                  </div>
+                </div>
+
                 {/* Dates and Status */}
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
@@ -938,6 +960,7 @@ export default function ManageJobs() {
                     <TableHead>Type</TableHead>
                     <TableHead>Eligibility</TableHead>
                     <TableHead>Deadline</TableHead>
+                    <TableHead>Apply Link</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
@@ -991,6 +1014,22 @@ export default function ManageJobs() {
                           </div>
                         ) : (
                           "No deadline"
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {job.apply_link ? (
+                          <a 
+                            href={job.apply_link} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-sm text-primary hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            <span className="max-w-[150px] truncate">External</span>
+                          </a>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Internal</span>
                         )}
                       </TableCell>
                       <TableCell>

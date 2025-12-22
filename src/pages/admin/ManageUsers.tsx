@@ -1,11 +1,12 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, memo } from "react";
+import { useDebounce } from "@/hooks/useDebounce";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { UserPlus, Users, Upload, Edit, Trash2, Search, User, Mail, Building2, GraduationCap, BookOpen, Calendar, Hash, X, Plus, AlertCircle } from "lucide-react";
+import { UserPlus, Users, Upload, Edit, Trash2, Search, User, Mail, Building2, GraduationCap, BookOpen, Calendar, Hash, X, Plus, AlertCircle, Loader2 } from "lucide-react";
 import { ExcelImport } from "@/components/ExcelImport";
 import { FileUpload } from "@/components/ui/file-upload";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -75,6 +76,7 @@ export default function ManageUsers() {
   const [selectedCollegeId, setSelectedCollegeId] = useState<number | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const debouncedSearchTerm = useDebounce(searchTerm, 300);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [editFormData, setEditFormData] = useState({
@@ -96,6 +98,14 @@ export default function ManageUsers() {
   const [subjectAssignments, setSubjectAssignments] = useState<Array<{ subject_id: number; semester_id?: number; section?: string; section_id?: number }>>([]);
   const [handledYears, setHandledYears] = useState<string[]>([]);
   const [handledSections, setHandledSections] = useState<string[]>([]);
+  const [reassignToFacultyId, setReassignToFacultyId] = useState<number | null>(null);
+  const [reassignOptions, setReassignOptions] = useState({
+    reassign_coding_problems: true,
+    reassign_quizzes: true,
+    reassign_labs: true,
+    reassign_lab_problems: true,
+  });
+  const [reassigning, setReassigning] = useState(false);
   const sectionNameOptions = useMemo(() => {
     const names = new Set<string>();
     sections.forEach((section: any) => {
@@ -345,6 +355,14 @@ useEffect(() => {
       handled_years: handledYears,
       handled_sections: handledSections,
     });
+    // Reset reassign state when opening dialog
+    setReassignToFacultyId(null);
+    setReassignOptions({
+      reassign_coding_problems: true,
+      reassign_quizzes: true,
+      reassign_labs: true,
+      reassign_lab_problems: true,
+    });
     setEditDialogOpen(true);
   };
 
@@ -354,7 +372,13 @@ useEffect(() => {
 
     setLoading(true);
     try {
-      await apiClient.put(`/users/${selectedUser.id}`, editFormData);
+      // Remove department from edit data if user is HOD (HOD cannot change department)
+      const dataToSend = { ...editFormData };
+      if (selectedUser.roles.some(r => r.role === 'hod')) {
+        delete dataToSend.department;
+      }
+      
+      await apiClient.put(`/users/${selectedUser.id}`, dataToSend);
       toast.success("User updated successfully!");
       setEditDialogOpen(false);
       fetchUsers();
@@ -365,12 +389,54 @@ useEffect(() => {
     }
   };
 
+  const handleReassignFacultyData = async () => {
+    if (!selectedUser || !reassignToFacultyId) {
+      toast.error("Please select a faculty member to reassign data to");
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to reassign all selected data from ${selectedUser.full_name || selectedUser.email} to the selected faculty? This action cannot be undone.`)) {
+      return;
+    }
+
+    setReassigning(true);
+    try {
+      const result = await apiClient.reassignFacultyData({
+        from_faculty_id: selectedUser.id,
+        to_faculty_id: reassignToFacultyId,
+        ...reassignOptions,
+      });
+
+      toast.success(
+        `Successfully reassigned data! ` +
+        `Coding Problems: ${result.reassigned_counts?.coding_problems || 0}, ` +
+        `Quizzes: ${result.reassigned_counts?.quizzes || 0}, ` +
+        `Labs: ${result.reassigned_counts?.labs || 0}, ` +
+        `Lab Problems: ${result.reassigned_counts?.lab_problems || 0}`
+      );
+      
+      setReassignToFacultyId(null);
+      fetchUsers();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to reassign faculty data");
+    } finally {
+      setReassigning(false);
+    }
+  };
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     if (!email || !fullName) {
       toast.error("Email and full name are required");
+      setLoading(false);
+      return;
+    }
+
+    // Department is required for HOD
+    if (role === 'hod' && !department) {
+      toast.error("Department is required for HOD");
       setLoading(false);
       return;
     }
@@ -470,12 +536,12 @@ useEffect(() => {
         <TabsList className="grid w-full" style={{ gridTemplateColumns: isSuperAdmin ? '1fr 1fr 1fr' : '1fr' }}>
           {isSuperAdmin && (
             <>
-              <TabsTrigger value="single">
-                <UserPlus className="h-4 w-4 mr-2" />
+          <TabsTrigger value="single">
+            <UserPlus className="h-4 w-4 mr-2" />
                 Create User
-              </TabsTrigger>
-              <TabsTrigger value="bulk">
-                <Upload className="h-4 w-4 mr-2" />
+          </TabsTrigger>
+          <TabsTrigger value="bulk">
+            <Upload className="h-4 w-4 mr-2" />
                 Bulk Upload
               </TabsTrigger>
             </>
@@ -571,16 +637,17 @@ useEffect(() => {
 
                 {(role === 'hod' || role === 'faculty') && (
                   <div className="space-y-2">
-                    <Label htmlFor="department">Branch / Department</Label>
+                    <Label htmlFor="department">Branch / Department {role === 'hod' && <span className="text-red-500">*</span>}</Label>
                     <Select
                       value={department || "none"}
                       onValueChange={(value) => setDepartment(value === "none" ? "" : value)}
+                      required={role === 'hod'}
                     >
                       <SelectTrigger id="department">
-                        <SelectValue placeholder="Select branch" />
+                        <SelectValue placeholder={role === 'hod' ? "Select department (required)" : "Select branch"} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">Select later</SelectItem>
+                        {role === 'hod' ? null : <SelectItem value="none">Select later</SelectItem>}
                         {departments.map((dept) => (
                           <SelectItem
                             key={dept.id}
@@ -592,6 +659,11 @@ useEffect(() => {
                         ))}
                       </SelectContent>
                     </Select>
+                    {role === 'hod' && (
+                      <p className="text-xs text-muted-foreground">
+                        HOD will be automatically assigned to this department. Department cannot be changed after creation.
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -910,14 +982,19 @@ useEffect(() => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {users
-                        .filter(user => 
-                          !searchTerm || 
-                          user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          (user.full_name?.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                          (user.roll_number?.toLowerCase().includes(searchTerm.toLowerCase()))
-                        )
-                        .map((user) => (
+                      {(() => {
+                        // Memoize filtered users for better performance
+                        const filteredUsers = useMemo(() => {
+                          const searchLower = debouncedSearchTerm.toLowerCase();
+                          return users.filter(user => 
+                            !debouncedSearchTerm || 
+                            user.email.toLowerCase().includes(searchLower) ||
+                            (user.full_name?.toLowerCase().includes(searchLower)) ||
+                            (user.roll_number?.toLowerCase().includes(searchLower))
+                          );
+                        }, [users, debouncedSearchTerm]);
+                        
+                        return filteredUsers.map((user) => (
                           <TableRow key={user.id}>
                             <TableCell className="font-medium">
                               {user.full_name || "N/A"}
@@ -941,7 +1018,8 @@ useEffect(() => {
                               </Button>
                             </TableCell>
                           </TableRow>
-                        ))}
+                        ));
+                      })()}
                     </TableBody>
                   </Table>
                 )}
@@ -999,11 +1077,11 @@ useEffect(() => {
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
                       <Mail className="h-3 w-3" />
                       {selectedUser.email}
-                    </span>
+                </span>
                   </div>
                 )}
               </div>
-            </DialogHeader>
+          </DialogHeader>
 
             {/* Scrollable Content */}
             <ScrollArea className="flex-1 px-6 py-4">
@@ -1018,87 +1096,97 @@ useEffect(() => {
                   </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
+            <div className="space-y-2">
                       <Label htmlFor="edit_full_name" className="text-sm font-medium flex items-center gap-2">
                         <User className="h-3.5 w-3.5" />
                         Full Name
                       </Label>
-                      <Input
-                        id="edit_full_name"
-                        value={editFormData.full_name}
-                        onChange={(e) => setEditFormData({ ...editFormData, full_name: e.target.value })}
+              <Input
+                id="edit_full_name"
+                value={editFormData.full_name}
+                onChange={(e) => setEditFormData({ ...editFormData, full_name: e.target.value })}
                         placeholder="Enter full name"
                         className="h-10"
-                      />
-                    </div>
+              />
+            </div>
 
-                    <div className="space-y-2">
+            <div className="space-y-2">
                       <Label htmlFor="edit_department" className="text-sm font-medium flex items-center gap-2">
                         <Building2 className="h-3.5 w-3.5" />
                         Department / Branch
                       </Label>
-                      <Select
-                        value={editFormData.department || "none"}
-                        onValueChange={(value) =>
-                          setEditFormData({
-                            ...editFormData,
-                            department: value === "none" ? "" : value,
-                          })
-                        }
-                      >
-                        <SelectTrigger id="edit_department" className="h-10">
-                          <SelectValue placeholder="Select department" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">Not assigned</SelectItem>
-                          {departments.map((dept) => (
-                            <SelectItem
-                              key={dept.id}
-                              value={dept.code || dept.name}
-                            >
-                              {dept.name}
-                              {dept.code ? ` (${dept.code})` : ""}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                      {/* Show read-only department for HOD */}
+                      {selectedUser && selectedUser.roles.some(r => r.role === 'hod') ? (
+                        <div className="px-3 py-2 border rounded-md bg-muted text-muted-foreground h-10 flex items-center">
+                          {editFormData.department || selectedUser.department || "N/A"}
+                          <p className="text-xs ml-2 text-muted-foreground">
+                            (HOD cannot change department. Delete and recreate to change.)
+                          </p>
+                        </div>
+                      ) : (
+              <Select
+                value={editFormData.department || "none"}
+                onValueChange={(value) =>
+                  setEditFormData({
+                    ...editFormData,
+                    department: value === "none" ? "" : value,
+                  })
+                }
+              >
+                          <SelectTrigger id="edit_department" className="h-10">
+                            <SelectValue placeholder="Select department" />
+                </SelectTrigger>
+                <SelectContent>
+                            <SelectItem value="none">Not assigned</SelectItem>
+                  {departments.map((dept) => (
+                    <SelectItem
+                      key={dept.id}
+                      value={dept.code || dept.name}
+                    >
+                      {dept.name}
+                      {dept.code ? ` (${dept.code})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+                      )}
+            </div>
 
-                    <div className="space-y-2">
+            <div className="space-y-2">
                       <Label htmlFor="edit_section" className="text-sm font-medium flex items-center gap-2">
                         <GraduationCap className="h-3.5 w-3.5" />
                         Section
                       </Label>
-                      <Input
-                        id="edit_section"
-                        value={editFormData.section}
-                        onChange={(e) => setEditFormData({ ...editFormData, section: e.target.value })}
+              <Input
+                id="edit_section"
+                value={editFormData.section}
+                onChange={(e) => setEditFormData({ ...editFormData, section: e.target.value })}
                         placeholder="e.g., A, B, C"
                         className="h-10"
-                      />
-                    </div>
+              />
+            </div>
 
-                    <div className="space-y-2">
+            <div className="space-y-2">
                       <Label htmlFor="edit_roll_number" className="text-sm font-medium flex items-center gap-2">
                         <Hash className="h-3.5 w-3.5" />
                         Roll Number
                       </Label>
-                      <Input
-                        id="edit_roll_number"
-                        value={editFormData.roll_number}
-                        onChange={(e) => setEditFormData({ ...editFormData, roll_number: e.target.value })}
+              <Input
+                id="edit_roll_number"
+                value={editFormData.roll_number}
+                onChange={(e) => setEditFormData({ ...editFormData, roll_number: e.target.value })}
                         placeholder="e.g., 21CS001"
                         className="h-10"
-                      />
+              />
                     </div>
                   </div>
-                </div>
+            </div>
 
                 <Separator />
 
                 {/* Faculty/HOD Specific Sections */}
-                {selectedUser && (selectedUser.roles.some(r => r.role === 'faculty') || selectedUser.roles.some(r => r.role === 'hod')) && (
-                  <>
+            {selectedUser && (selectedUser.roles.some(r => r.role === 'faculty') || selectedUser.roles.some(r => r.role === 'hod')) && (
+              <>
                     {/* Teaching Assignments Section */}
                     <div className="space-y-4">
                       <div className="flex items-center gap-2 pb-2">
@@ -1111,58 +1199,58 @@ useEffect(() => {
                       {/* Years Handled */}
                       <div className="space-y-3">
                         <Label className="text-sm font-medium">Years Handled</Label>
-                        <div className="flex flex-wrap gap-2">
-                          {['1st', '2nd', '3rd', '4th', '5th'].map((year) => (
-                            <Button
-                              key={year}
-                              type="button"
-                              variant={editFormData.handled_years.includes(year) ? "default" : "outline"}
-                              size="sm"
+                  <div className="flex flex-wrap gap-2">
+                    {['1st', '2nd', '3rd', '4th', '5th'].map((year) => (
+                      <Button
+                        key={year}
+                        type="button"
+                        variant={editFormData.handled_years.includes(year) ? "default" : "outline"}
+                        size="sm"
                               className="h-9 px-4"
-                              onClick={() => {
-                                const updated = editFormData.handled_years.includes(year)
-                                  ? editFormData.handled_years.filter(y => y !== year)
-                                  : [...editFormData.handled_years, year];
-                                setEditFormData({ ...editFormData, handled_years: updated });
-                              }}
-                            >
+                        onClick={() => {
+                          const updated = editFormData.handled_years.includes(year)
+                            ? editFormData.handled_years.filter(y => y !== year)
+                            : [...editFormData.handled_years, year];
+                          setEditFormData({ ...editFormData, handled_years: updated });
+                        }}
+                      >
                               {year} Year
-                            </Button>
-                          ))}
-                        </div>
+                      </Button>
+                    ))}
+                  </div>
                         {editFormData.handled_years.length === 0 && (
                           <p className="text-xs text-muted-foreground flex items-center gap-1">
                             <AlertCircle className="h-3 w-3" />
                             No years selected. Select the years this faculty member handles.
                           </p>
                         )}
-                      </div>
+                </div>
 
                       {/* Sections Handled */}
-                      {sectionNameOptions.length > 0 && (
+                {sectionNameOptions.length > 0 && (
                         <div className="space-y-3">
                           <Label className="text-sm font-medium">Sections Handled</Label>
-                          <div className="flex flex-wrap gap-2">
-                            {sectionNameOptions.map((sec) => (
-                              <Button
-                                key={sec}
-                                type="button"
-                                variant={editFormData.handled_sections.includes(sec) ? "default" : "outline"}
-                                size="sm"
+                    <div className="flex flex-wrap gap-2">
+                      {sectionNameOptions.map((sec) => (
+                        <Button
+                          key={sec}
+                          type="button"
+                          variant={editFormData.handled_sections.includes(sec) ? "default" : "outline"}
+                          size="sm"
                                 className="h-9 px-4"
-                                onClick={() => {
-                                  const updated = editFormData.handled_sections.includes(sec)
-                                    ? editFormData.handled_sections.filter(s => s !== sec)
-                                    : [...editFormData.handled_sections, sec];
-                                  setEditFormData({ ...editFormData, handled_sections: updated });
-                                }}
-                              >
+                          onClick={() => {
+                            const updated = editFormData.handled_sections.includes(sec)
+                              ? editFormData.handled_sections.filter(s => s !== sec)
+                              : [...editFormData.handled_sections, sec];
+                            setEditFormData({ ...editFormData, handled_sections: updated });
+                          }}
+                        >
                                 Section {sec}
-                              </Button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                     </div>
 
                     <Separator />
@@ -1200,131 +1288,243 @@ useEffect(() => {
                           </div>
                         ) : (
                           <div className="space-y-3">
-                            {editFormData.subject_assignments.map((assignment, index) => (
+                {editFormData.subject_assignments.map((assignment, index) => (
                               <Card key={index} className="p-4 border-2">
                                 <div className="flex gap-3 items-start">
                                   <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
                                     <div className="space-y-2">
                                       <Label className="text-xs font-medium text-muted-foreground">Subject *</Label>
-                                      <Select
-                                        value={assignment.subject_id?.toString() || ""}
-                                        onValueChange={(value) => {
-                                          const updated = [...editFormData.subject_assignments];
-                                          updated[index].subject_id = parseInt(value);
-                                          if (updated[index].section_id) {
-                                            const filteredSections = getFilteredSections(updated[index]);
-                                            const currentSection = filteredSections.find((s: any) => s.id === updated[index].section_id);
-                                            if (!currentSection) {
-                                              updated[index].section_id = undefined;
-                                              updated[index].section = "";
-                                            }
-                                          }
-                                          setEditFormData({ ...editFormData, subject_assignments: updated });
-                                        }}
-                                      >
+                      <Select
+                        value={assignment.subject_id?.toString() || ""}
+                        onValueChange={(value) => {
+                          const updated = [...editFormData.subject_assignments];
+                          updated[index].subject_id = parseInt(value);
+                          if (updated[index].section_id) {
+                            const filteredSections = getFilteredSections(updated[index]);
+                            const currentSection = filteredSections.find((s: any) => s.id === updated[index].section_id);
+                            if (!currentSection) {
+                              updated[index].section_id = undefined;
+                              updated[index].section = "";
+                            }
+                          }
+                          setEditFormData({ ...editFormData, subject_assignments: updated });
+                        }}
+                      >
                                         <SelectTrigger className="h-9">
-                                          <SelectValue placeholder="Select Subject" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {subjects.map((subject) => (
-                                            <SelectItem key={subject.id} value={subject.id.toString()}>
-                                              {subject.name} {subject.code ? `(${subject.code})` : ''}
-                                            </SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
+                          <SelectValue placeholder="Select Subject" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {subjects.map((subject) => (
+                            <SelectItem key={subject.id} value={subject.id.toString()}>
+                              {subject.name} {subject.code ? `(${subject.code})` : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                                     <div className="space-y-2">
                                       <Label className="text-xs font-medium text-muted-foreground">Semester</Label>
-                                      <Select
-                                        value={assignment.semester_id?.toString() || "none"}
-                                        onValueChange={(value) => {
-                                          const updated = [...editFormData.subject_assignments];
-                                          updated[index].semester_id = value && value !== "none" ? parseInt(value) : undefined;
-                                          if (updated[index].section_id) {
-                                            const filteredSections = getFilteredSections(updated[index]);
-                                            const currentSection = filteredSections.find((s: any) => s.id === updated[index].section_id);
-                                            if (!currentSection) {
-                                              updated[index].section_id = undefined;
-                                              updated[index].section = "";
-                                            }
-                                          }
-                                          setEditFormData({ ...editFormData, subject_assignments: updated });
-                                        }}
-                                      >
+                      <Select
+                        value={assignment.semester_id?.toString() || "none"}
+                        onValueChange={(value) => {
+                          const updated = [...editFormData.subject_assignments];
+                          updated[index].semester_id = value && value !== "none" ? parseInt(value) : undefined;
+                          if (updated[index].section_id) {
+                            const filteredSections = getFilteredSections(updated[index]);
+                            const currentSection = filteredSections.find((s: any) => s.id === updated[index].section_id);
+                            if (!currentSection) {
+                              updated[index].section_id = undefined;
+                              updated[index].section = "";
+                            }
+                          }
+                          setEditFormData({ ...editFormData, subject_assignments: updated });
+                        }}
+                      >
                                         <SelectTrigger className="h-9">
-                                          <SelectValue placeholder="Select Semester" />
-                                        </SelectTrigger>
-                                        <SelectContent>
+                          <SelectValue placeholder="Select Semester" />
+                        </SelectTrigger>
+                        <SelectContent>
                                           <SelectItem value="none">All Semesters</SelectItem>
-                                          {semesters.map((semester) => (
-                                            <SelectItem key={semester.id} value={semester.id.toString()}>
-                                              {semester.name}
-                                            </SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
+                          {semesters.map((semester) => (
+                            <SelectItem key={semester.id} value={semester.id.toString()}>
+                              {semester.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                                     <div className="space-y-2">
                                       <Label className="text-xs font-medium text-muted-foreground">Section</Label>
-                                      <Select
-                                        value={assignment.section_id?.toString() || "none"}
-                                        onValueChange={(value) => {
-                                          const updated = [...editFormData.subject_assignments];
-                                          if (value && value !== "none") {
-                                            const sectionObj = sections.find((section: any) => section.id.toString() === value);
-                                            updated[index].section_id = parseInt(value, 10);
-                                            updated[index].section = sectionObj?.name || "";
-                                          } else {
-                                            updated[index].section_id = undefined;
-                                            updated[index].section = "";
-                                          }
-                                          setEditFormData({ ...editFormData, subject_assignments: updated });
-                                        }}
-                                        disabled={!assignment.subject_id}
-                                      >
+                      <Select
+                        value={assignment.section_id?.toString() || "none"}
+                        onValueChange={(value) => {
+                          const updated = [...editFormData.subject_assignments];
+                          if (value && value !== "none") {
+                            const sectionObj = sections.find((section: any) => section.id.toString() === value);
+                            updated[index].section_id = parseInt(value, 10);
+                            updated[index].section = sectionObj?.name || "";
+                          } else {
+                            updated[index].section_id = undefined;
+                            updated[index].section = "";
+                          }
+                          setEditFormData({ ...editFormData, subject_assignments: updated });
+                        }}
+                        disabled={!assignment.subject_id}
+                      >
                                         <SelectTrigger className="h-9">
-                                          <SelectValue placeholder={assignment.subject_id ? "Select Section" : "Select subject first"} />
-                                        </SelectTrigger>
-                                        <SelectContent>
+                          <SelectValue placeholder={assignment.subject_id ? "Select Section" : "Select subject first"} />
+                        </SelectTrigger>
+                        <SelectContent>
                                           <SelectItem value="none">All Sections</SelectItem>
-                                          {getFilteredSections(assignment).length > 0 ? (
-                                            getFilteredSections(assignment).map((section: any) => (
-                                              <SelectItem key={section.id} value={section.id.toString()}>
-                                                {section.name}
-                                                {section.year ? ` (Year ${section.year})` : ''}
-                                                {section.department_name ? ` - ${section.department_name}` : ''}
-                                                {section.semester_name ? ` - ${section.semester_name}` : ''}
-                                              </SelectItem>
-                                            ))
-                                          ) : assignment.subject_id ? (
-                                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                          {getFilteredSections(assignment).length > 0 ? (
+                            getFilteredSections(assignment).map((section: any) => (
+                              <SelectItem key={section.id} value={section.id.toString()}>
+                                {section.name}
+                                {section.year ? ` (Year ${section.year})` : ''}
+                                {section.department_name ? ` - ${section.department_name}` : ''}
+                                {section.semester_name ? ` - ${section.semester_name}` : ''}
+                              </SelectItem>
+                            ))
+                          ) : assignment.subject_id ? (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
                                               No sections available
-                                            </div>
-                                          ) : null}
-                                        </SelectContent>
-                                      </Select>
+                            </div>
+                          ) : null}
+                        </SelectContent>
+                      </Select>
                                     </div>
-                                  </div>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
                                     className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                    onClick={() => setEditFormData({ 
-                                      ...editFormData, 
-                                      subject_assignments: editFormData.subject_assignments.filter((_, i) => i !== index)
-                                    })}
-                                  >
+                      onClick={() => setEditFormData({ 
+                        ...editFormData, 
+                        subject_assignments: editFormData.subject_assignments.filter((_, i) => i !== index)
+                      })}
+                    >
                                     <X className="h-4 w-4" />
-                                  </Button>
-                                </div>
+                    </Button>
+                  </div>
                               </Card>
                             ))}
                           </div>
                         )}
                       </div>
                     )}
+                  </>
+                )}
+
+                {/* Reassign Faculty Data Section - Only for faculty */}
+                {selectedUser && selectedUser.roles.some(r => r.role === 'faculty') && (
+                  <>
+                    <Separator />
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 pb-2">
+                        <div className="p-1.5 rounded-md bg-orange-500/10">
+                          <User className="h-4 w-4 text-orange-600" />
+                        </div>
+                        <h3 className="text-lg font-semibold">Reassign Faculty Data</h3>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        If this faculty member is being replaced, you can reassign all their data (coding problems, quizzes, labs) to another faculty member. The new faculty can then edit and manage this data.
+                      </p>
+                      <div className="space-y-3">
+                        <div className="space-y-2">
+                          <Label>Reassign to Faculty</Label>
+                          <Select
+                            value={reassignToFacultyId?.toString() || ""}
+                            onValueChange={(value) => setReassignToFacultyId(parseInt(value))}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select faculty member" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {users
+                                .filter(u => u.roles.some(r => r.role === 'faculty') && u.id !== selectedUser.id)
+                                .map((faculty) => (
+                                  <SelectItem key={faculty.id} value={faculty.id.toString()}>
+                                    {faculty.full_name || faculty.email} ({faculty.department || 'N/A'})
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Data to Reassign</Label>
+                          <div className="space-y-2">
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                id="reassign_coding"
+                                checked={reassignOptions.reassign_coding_problems}
+                                onChange={(e) =>
+                                  setReassignOptions({ ...reassignOptions, reassign_coding_problems: e.target.checked })
+                                }
+                                className="rounded"
+                              />
+                              <Label htmlFor="reassign_coding" className="font-normal">Coding Problems</Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                id="reassign_quizzes"
+                                checked={reassignOptions.reassign_quizzes}
+                                onChange={(e) =>
+                                  setReassignOptions({ ...reassignOptions, reassign_quizzes: e.target.checked })
+                                }
+                                className="rounded"
+                              />
+                              <Label htmlFor="reassign_quizzes" className="font-normal">Quizzes</Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                id="reassign_labs"
+                                checked={reassignOptions.reassign_labs}
+                                onChange={(e) =>
+                                  setReassignOptions({ ...reassignOptions, reassign_labs: e.target.checked })
+                                }
+                                className="rounded"
+                              />
+                              <Label htmlFor="reassign_labs" className="font-normal">Coding Labs</Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                id="reassign_lab_problems"
+                                checked={reassignOptions.reassign_lab_problems}
+                                onChange={(e) =>
+                                  setReassignOptions({ ...reassignOptions, reassign_lab_problems: e.target.checked })
+                                }
+                                className="rounded"
+                              />
+                              <Label htmlFor="reassign_lab_problems" className="font-normal">Lab Problems</Label>
+                            </div>
+                          </div>
+                        </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                          onClick={handleReassignFacultyData}
+                          disabled={!reassignToFacultyId || reassigning}
+                          className="w-full"
+                        >
+                          {reassigning ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              Reassigning...
+                            </>
+                          ) : (
+                            <>
+                              <User className="w-4 h-4 mr-2" />
+                              Reassign Data to Selected Faculty
+                            </>
+                          )}
+                </Button>
+              </div>
+                    </div>
                   </>
                 )}
 
@@ -1335,8 +1535,8 @@ useEffect(() => {
                   </p>
                   <div className="flex gap-2">
                     <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)} className="h-10">
-                      Cancel
-                    </Button>
+                Cancel
+              </Button>
                     <Button 
                       type="submit" 
                       disabled={loading}
@@ -1353,10 +1553,10 @@ useEffect(() => {
                           Update User
                         </>
                       )}
-                    </Button>
+              </Button>
                   </div>
                 </div>
-              </form>
+          </form>
             </ScrollArea>
           </div>
         </DialogContent>

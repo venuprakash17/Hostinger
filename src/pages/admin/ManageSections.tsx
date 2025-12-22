@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Building2, Plus, Settings2 } from "lucide-react";
+import { Building2, Plus, Settings2, RefreshCw, Users } from "lucide-react";
 import { toast } from "sonner";
 
 import { useUserRole } from "@/hooks/useUserRole";
@@ -75,6 +75,7 @@ export default function ManageSections() {
 
   const [collegeId, setCollegeId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [autoPopulating, setAutoPopulating] = useState(false);
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -273,6 +274,29 @@ export default function ManageSections() {
     }
   };
 
+  const handleAutoPopulateSections = async () => {
+    if (!collegeId && isSuperAdmin) {
+      toast.error("Please select a college first");
+      return;
+    }
+    
+    if (!confirm("This will create sections automatically from student data. Continue?")) {
+      return;
+    }
+    
+    setAutoPopulating(true);
+    try {
+      const result = await apiClient.autoPopulateSections(collegeId || undefined);
+      toast.success(`Successfully created ${result.length} sections from student data!`);
+      fetchSections();
+    } catch (error: any) {
+      console.error("Failed to auto-populate sections:", error);
+      toast.error(error.message || "Failed to auto-populate sections");
+    } finally {
+      setAutoPopulating(false);
+    }
+  };
+
   const departmentLookup = useMemo(() => {
     const lookup = new Map<number, string>();
     departments.forEach((dept) => lookup.set(dept.id, dept.name));
@@ -322,6 +346,14 @@ export default function ManageSections() {
             </div>
           )}
 
+          <Button 
+            onClick={handleAutoPopulateSections} 
+            disabled={!collegeId || autoPopulating}
+            variant="outline"
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${autoPopulating ? 'animate-spin' : ''}`} />
+            {autoPopulating ? "Auto-populating..." : "Auto-populate from Students"}
+          </Button>
           <Button onClick={handleOpenCreate} disabled={!collegeId}>
             <Plus className="mr-2 h-4 w-4" />
             Create Section
@@ -359,6 +391,9 @@ export default function ManageSections() {
                 sections.map((section) => (
                   <TableRow key={section.id}>
                     <TableCell className="font-medium">{section.name}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {(section as any).display_name || "—"}
+                    </TableCell>
                     <TableCell>{section.department_name || departmentLookup.get(section.department_id) || "—"}</TableCell>
                     <TableCell>{section.semester_name || (section.semester_id ? semesterLookup.get(section.semester_id) : "—")}</TableCell>
                     <TableCell>{section.year || "—"}</TableCell>

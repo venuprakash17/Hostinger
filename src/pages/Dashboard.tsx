@@ -41,7 +41,7 @@ export default function Dashboard() {
     if (!profile) return 0;
     
     let completed = 0;
-    let total = 4; // Personal info, Education, Projects, Skills
+    const total = 4; // Personal info, Education, Projects, Skills
     
     // Personal info (name, email, phone)
     if (profile.full_name && profile.email) completed++;
