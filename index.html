@@ -19,6 +19,65 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@lovable_dev" />
     <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+    
+    <!-- CRITICAL: Fetch interceptor - MUST run before ANY other script -->
+    <script>
+      (function() {
+        'use strict';
+        // Store original fetch IMMEDIATELY
+        const originalFetch = window.fetch;
+        const hostname = window.location.hostname;
+        
+        // Determine correct API URL
+        let correctApiUrl = '';
+        if (hostname === 'svnaprojob.online' || hostname === 'www.svnaprojob.online') {
+          correctApiUrl = 'https://svnaprojob.online/api/v1';
+        } else if (hostname === 'localhost' || hostname === '127.0.0.1') {
+          correctApiUrl = 'http://localhost:8000/api/v1';
+        } else {
+          correctApiUrl = 'https://svnaprojob.online/api/v1';
+        }
+        
+        // Store globally
+        window.__CORRECT_API_URL__ = correctApiUrl;
+        console.log('[Preload] ✅ API URL set:', correctApiUrl);
+        
+        // Intercept ALL fetch calls
+        window.fetch = function(input, init) {
+          let url = '';
+          if (typeof input === 'string') {
+            url = input;
+          } else if (input instanceof URL) {
+            url = input.toString();
+          } else if (input && input.url) {
+            url = input.url;
+          } else {
+            return originalFetch.apply(this, arguments);
+          }
+          
+          // ABSOLUTE BLOCK: Replace old IP immediately
+          if (url.includes('72.60.101.14:8000')) {
+            console.error('[Preload] 🚨 BLOCKED old IP! Original:', url);
+            url = url.replace(/https?:\/\/72\.60\.101\.14:8000(\/api\/v1)?/g, correctApiUrl);
+            url = url.replace(/72\.60\.101\.14:8000/g, 'svnaprojob.online');
+            console.log('[Preload] ✅ Replaced with:', url);
+            
+            // Update input
+            if (typeof input === 'string') {
+              input = url;
+            } else if (input instanceof URL) {
+              input = new URL(url);
+            } else if (input) {
+              input = Object.assign({}, input, { url: url });
+            }
+          }
+          
+          return originalFetch.call(this, input, init);
+        };
+        
+        console.log('[Preload] ✅ Fetch interceptor installed');
+      })();
+    </script>
   </head>
 
   <body>
