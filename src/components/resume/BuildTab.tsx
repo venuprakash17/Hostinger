@@ -172,9 +172,6 @@ export const BuildTab = memo(function BuildTab() {
         summary: contentToUse.summary,
         education: contentToUse.formattedEducation || allEducation,
         work_experience: contentToUse.work_experience || [], // Include work experience
-      extracurricular: contentToUse.formattedExtracurricular || extracurricular,
-      hobbies: contentToUse.formattedHobbies || hobbies,
-      languages: contentToUse.languages || [], // Include languages
         projects: contentToUse.formattedProjects || allProjects,
         skills: contentToUse.formattedSkills || formatSkillsForPDF(allSkills),
         // Template selection handled in preview modal

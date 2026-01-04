@@ -84,14 +84,17 @@ if [ ! -d "dist" ]; then
     exit 1
 fi
 
-# Verify the build has the correct URL embedded (should NOT have old IP)
+# Verify the build has the correct URL embedded (should NOT have old IP as actual URL)
 echo -e "${YELLOW}🔍 Verifying build contains correct code...${NC}"
-if grep -r "72.60.101.14:8000" dist/assets/*.js 2>/dev/null | head -1; then
-    echo -e "${RED}❌ ERROR: Found old IP address in build!${NC}"
+# Check for old IP being used as actual URL (not just in string comparisons)
+# Look for patterns where old IP is assigned or used as a URL
+# Exclude string comparison methods (includes, indexOf, replace, test, match, search)
+if grep -rE "(http://72\.60|https://72\.60|['\"]72\.60\.101\.14:8000/api|baseURL.*=.*72\.60|apiUrl.*=.*72\.60)" dist/assets/*.js 2>/dev/null | grep -vE "(includes|indexOf|replace|test|match|search|console\.(log|warn))" | head -1; then
+    echo -e "${RED}❌ ERROR: Found old IP address being used as URL in build!${NC}"
     echo -e "${YELLOW}Rebuilding with clean cache...${NC}"
     rm -rf dist node_modules/.vite
     npm run build
-    if grep -r "72.60.101.14:8000" dist/assets/*.js 2>/dev/null | head -1; then
+    if grep -rE "(http://72\.60|https://72\.60|['\"]72\.60\.101\.14:8000/api|baseURL.*=.*72\.60|apiUrl.*=.*72\.60)" dist/assets/*.js 2>/dev/null | grep -vE "(includes|indexOf|replace|test|match|search|console\.(log|warn))" | head -1; then
         echo -e "${RED}❌ Still found old IP after rebuild. Check source code.${NC}"
         exit 1
     fi

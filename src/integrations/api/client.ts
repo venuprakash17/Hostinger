@@ -107,6 +107,17 @@ class APIClient {
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
       
+      // ABSOLUTE SAFETY: Never allow old IP in production, regardless of source
+      if (url.includes('72.60.101.14:8000')) {
+        console.error('[API Client] 🚨 CRITICAL: Old IP detected in URL! Forcing correct URL...');
+        if (hostname === 'svnaprojob.online' || hostname === 'www.svnaprojob.online' || hostname.includes('72.60.101.14')) {
+          url = 'https://svnaprojob.online/api/v1';
+        } else {
+          url = 'http://localhost:8000/api/v1';
+        }
+        console.log('[API Client] ✅ FORCED URL to:', url);
+      }
+      
       // If we're on production domain but got wrong URL, force correct one
       if ((hostname === 'svnaprojob.online' || hostname === 'www.svnaprojob.online') && 
           (url.includes('72.60.101.14') || url.includes('localhost:8000'))) {
