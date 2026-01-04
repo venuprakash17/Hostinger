@@ -68,7 +68,18 @@ export VITE_API_BASE_URL="https://${DOMAIN}/api/v1"
 export VITE_WS_BASE_URL="wss://${DOMAIN}"
 export NODE_ENV=production
 
+echo -e "${BLUE}Building with:${NC}"
+echo -e "  VITE_API_BASE_URL=${VITE_API_BASE_URL}"
+echo -e "  VITE_WS_BASE_URL=${VITE_WS_BASE_URL}"
+
 npm run build
+
+# Verify the build has the correct URL embedded
+if grep -r "72.60.101.14:8000" dist/ 2>/dev/null | head -1; then
+    echo -e "${YELLOW}⚠️  Warning: Found old IP address in build. Rebuilding...${NC}"
+    rm -rf dist
+    npm run build
+fi
 
 if [ ! -d "dist" ]; then
     echo -e "${RED}❌ Build failed! dist folder not found.${NC}"

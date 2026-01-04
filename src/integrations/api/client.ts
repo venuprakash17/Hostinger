@@ -3,15 +3,34 @@
  * Replaces Appwrite client
  */
 
-// Force localhost in development to prevent production URL issues
+// Get API base URL from environment or detect production
 const getApiBaseUrl = () => {
   const envUrl = import.meta.env.VITE_API_BASE_URL;
-  // If in development and URL contains production IP, use localhost
-  if (import.meta.env.DEV && envUrl && envUrl.includes('72.60.101.14')) {
-    console.warn('[API Client] Production URL detected in dev mode, using localhost instead');
+  
+  // If environment variable is set, use it
+  if (envUrl) {
+    return envUrl;
+  }
+  
+  // Auto-detect production: if running on svnaprojob.online, use production API
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname === 'svnaprojob.online' || hostname === 'www.svnaprojob.online') {
+      return 'https://svnaprojob.online/api/v1';
+    }
+    // If accessing via IP, use HTTPS API
+    if (hostname === '72.60.101.14') {
+      return 'https://svnaprojob.online/api/v1';
+    }
+  }
+  
+  // Development fallback
+  if (import.meta.env.DEV) {
     return 'http://localhost:8000/api/v1';
   }
-  return envUrl || 'http://localhost:8000/api/v1';
+  
+  // Production fallback
+  return 'https://svnaprojob.online/api/v1';
 };
 
 const API_BASE_URL = getApiBaseUrl();
