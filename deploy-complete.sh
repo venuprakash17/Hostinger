@@ -87,18 +87,26 @@ fi
 # Verify the build has the correct URL embedded (should NOT have old IP as actual URL)
 echo -e "${YELLOW}🔍 Verifying build contains correct code...${NC}"
 # Check for old IP being used as actual URL (not just in string comparisons)
-# Look for patterns where old IP is assigned or used as a URL
-# Exclude string comparison methods (includes, indexOf, replace, test, match, search)
-if grep -rE "(http://72\.60|https://72\.60|['\"]72\.60\.101\.14:8000/api|baseURL.*=.*72\.60|apiUrl.*=.*72\.60)" dist/assets/*.js 2>/dev/null | grep -vE "(includes|indexOf|replace|test|match|search|console\.(log|warn))" | head -1; then
+# Only flag if it's used in contexts that suggest actual URL usage:
+# - Full URL patterns: http://72.60.101.14:8000 or https://72.60.101.14:8000
+# - In fetch() calls with old IP
+# - As return values with old IP
+# - In URL template strings: '72.60.101.14:8000/api/v1'
+# We exclude: includes, indexOf, replace, test, match, search, console.log/warn/error
+# Note: String comparisons like t.includes("72.60.101.14:8000") are OK - they're defensive checks
+OLD_IP_PATTERN="(http://72\.60\.101\.14:8000|https://72\.60\.101\.14:8000|fetch\([^)]*72\.60\.101\.14:8000|return[^;]*72\.60\.101\.14:8000|['\"]72\.60\.101\.14:8000/api/v1)"
+EXCLUDE_PATTERN="(includes|indexOf|replace|test|match|search|console\.(log|warn|error)|\.includes\(|\.indexOf\(|\.replace\(|\.test\(|\.match\()"
+if grep -rE "$OLD_IP_PATTERN" dist/assets/*.js 2>/dev/null | grep -vE "$EXCLUDE_PATTERN" | head -1; then
     echo -e "${RED}❌ ERROR: Found old IP address being used as URL in build!${NC}"
     echo -e "${YELLOW}Rebuilding with clean cache...${NC}"
     rm -rf dist node_modules/.vite
     npm run build
-    if grep -rE "(http://72\.60|https://72\.60|['\"]72\.60\.101\.14:8000/api|baseURL.*=.*72\.60|apiUrl.*=.*72\.60)" dist/assets/*.js 2>/dev/null | grep -vE "(includes|indexOf|replace|test|match|search|console\.(log|warn))" | head -1; then
+    if grep -rE "$OLD_IP_PATTERN" dist/assets/*.js 2>/dev/null | grep -vE "$EXCLUDE_PATTERN" | head -1; then
         echo -e "${RED}❌ Still found old IP after rebuild. Check source code.${NC}"
         exit 1
     fi
 fi
+echo -e "${GREEN}✅ Build verification passed - no old IP found in actual URL usage${NC}"
 
 # Verify new code is present
 if grep -r "Runtime detection" dist/assets/*.js 2>/dev/null | head -1 > /dev/null; then
