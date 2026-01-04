@@ -36,7 +36,13 @@ def create_super_admin(email: str = "superadmin@elevate.edu", password: str = "S
         
         if existing_user:
             print(f"⚠️  User with email {email} already exists (ID: {existing_user.id})")
-            response = input("Do you want to update this user to super admin? (yes/no): ")
+            # Auto-update if running non-interactively (e.g., from deploy script)
+            import sys
+            if not sys.stdin.isatty():
+                print("Non-interactive mode: Auto-updating to super admin...")
+                response = 'yes'
+            else:
+                response = input("Do you want to update this user to super admin? (yes/no): ")
             if response.lower() != 'yes':
                 print("Cancelled.")
                 return

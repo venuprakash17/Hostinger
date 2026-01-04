@@ -203,6 +203,84 @@ ssh ${SERVER_USER}@${SERVER_HOST} << 'ENDSSH'
         if [ ! -L /etc/nginx/sites-enabled/svnaprojob.online ]; then
             ln -sf /etc/nginx/sites-available/svnaprojob.online /etc/nginx/sites-enabled/svnaprojob.online 2>/dev/null || true
         fi
+        
+        # Check if SSL certificates exist, if not, create HTTP-only config
+        if [ ! -f /etc/letsencrypt/live/svnaprojob.online/fullchain.pem ]; then
+            echo "⚠️  SSL certificates not found, creating HTTP-only config..."
+            cat > /etc/nginx/sites-available/svnaprojob.online << 'NGINX_HTTP_EOF'
+# HTTP Server (SSL not configured yet)
+server {
+    listen 80;
+    listen [::]:80;
+    server_name svnaprojob.online www.svnaprojob.online;
+
+    # Root directory for frontend
+    root /var/www/elevate-edu-ui/dist;
+    index index.html;
+
+    # Gzip Compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss application/json application/javascript;
+
+    # Static assets - NO CACHE for JS files
+    location ~* \.(js)$ {
+        root /var/www/elevate-edu-ui/dist;
+        expires -1;
+        add_header Cache-Control "no-cache, no-store, must-revalidate, max-age=0";
+        add_header Pragma "no-cache";
+        access_log off;
+    }
+
+    # Other static assets (CSS, images, fonts)
+    location /assets/ {
+        alias /var/www/elevate-edu-ui/dist/assets/;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+
+    # Backend API Proxy
+    location /api {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+        proxy_send_timeout 300s;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_buffering off;
+        proxy_request_buffering off;
+    }
+
+    # Health check endpoint
+    location /health {
+        proxy_pass http://127.0.0.1:8000/health;
+        access_log off;
+    }
+
+    # Frontend (SPA routing)
+    location / {
+        try_files $uri $uri/ /index.html;
+        expires -1;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+}
+NGINX_HTTP_EOF
+            echo "✅ Created HTTP-only nginx config"
+        fi
     fi
     
     # Clear all caches
@@ -226,8 +304,41 @@ ssh ${SERVER_USER}@${SERVER_HOST} << 'ENDSSH'
         fi
     else
         echo "❌ Nginx configuration test failed!"
-        echo "   Run: nginx -t"
-        echo "   Fix config and restart manually"
+        echo "   Creating fallback HTTP-only config..."
+        # Create simple HTTP config as fallback
+        cat > /etc/nginx/sites-available/svnaprojob.online << 'NGINX_FALLBACK_EOF'
+server {
+    listen 80;
+    server_name svnaprojob.online www.svnaprojob.online;
+    root /var/www/elevate-edu-ui/dist;
+    index index.html;
+    
+    location /api {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+    
+    location ~* \.(js)$ {
+        root /var/www/elevate-edu-ui/dist;
+        expires -1;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+    
+    location / {
+        try_files $uri $uri/ /index.html;
+        expires -1;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+}
+NGINX_FALLBACK_EOF
+        if nginx -t 2>&1; then
+            systemctl restart nginx
+            echo "✅ Nginx restarted with fallback config"
+        else
+            echo "❌ Even fallback config failed. Check nginx manually."
+        fi
     fi
     
     echo "✅ Server setup complete"
