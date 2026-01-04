@@ -19,22 +19,32 @@ const getApiBaseUrl = (): string => {
   // Priority 2: Runtime detection based on current hostname
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
-    const protocol = window.location.protocol === 'https:' ? 'https:' : 'https:'; // Force HTTPS in production
+    const protocol = window.location.protocol;
     
-    // Production domain detection
+    console.log('[API Client] Runtime detection - hostname:', hostname, 'protocol:', protocol);
+    
+    // Production domain detection (HTTP or HTTPS)
     if (hostname === 'svnaprojob.online' || hostname === 'www.svnaprojob.online') {
-      return 'https://svnaprojob.online/api/v1';
+      // Always use HTTPS for API calls in production, even if page is HTTP
+      const apiUrl = 'https://svnaprojob.online/api/v1';
+      console.log('[API Client] Detected production domain, using:', apiUrl);
+      return apiUrl;
     }
     
     // IP address detection - use domain instead
     if (hostname === '72.60.101.14' || hostname.includes('72.60.101.14')) {
-      return 'https://svnaprojob.online/api/v1';
+      const apiUrl = 'https://svnaprojob.online/api/v1';
+      console.log('[API Client] Detected IP address, using domain:', apiUrl);
+      return apiUrl;
     }
     
     // Development detection
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      console.log('[API Client] Detected localhost, using:', 'http://localhost:8000/api/v1');
       return 'http://localhost:8000/api/v1';
     }
+    
+    console.log('[API Client] Hostname not matched, will use fallback');
   }
   
   // Priority 3: Development mode check
@@ -52,11 +62,14 @@ const getRuntimeApiBaseUrl = (): string => {
 };
 
 // Log API base URL for debugging (always log in production too for troubleshooting)
+// This runs at module load time, but we'll also log in getBaseURL for runtime
 if (typeof window !== 'undefined') {
   const runtimeUrl = getRuntimeApiBaseUrl();
-  console.log('[API Client] Runtime API Base URL:', runtimeUrl);
+  console.log('[API Client] Initial API Base URL:', runtimeUrl);
   console.log('[API Client] Environment variable:', import.meta.env.VITE_API_BASE_URL);
   console.log('[API Client] Current hostname:', window.location.hostname);
+  console.log('[API Client] Current protocol:', window.location.protocol);
+  console.log('[API Client] Full URL:', window.location.href);
 }
 
 // Token management
@@ -81,8 +94,14 @@ const clearTokens = () => {
 // API Client class
 class APIClient {
   private getBaseURL(): string {
-    // Always get fresh URL at runtime
-    return getRuntimeApiBaseUrl();
+    // Always get fresh URL at runtime with detailed logging
+    const url = getRuntimeApiBaseUrl();
+    // Log every time to help debug (only in production)
+    if (typeof window !== 'undefined' && !import.meta.env.DEV) {
+      console.log('[API Client] getBaseURL() called, returning:', url);
+      console.log('[API Client] Current hostname:', window.location.hostname);
+    }
+    return url;
   }
 
   constructor(baseURL?: string) {
