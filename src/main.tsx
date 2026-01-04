@@ -22,37 +22,57 @@ if (typeof window !== 'undefined') {
       console.warn('[Main] 🚨 Blocking old IP from env var, using:', correctApiUrl);
     }
     // Force the correct URL
-    Object.defineProperty(import.meta.env, 'VITE_API_BASE_URL', {
-      value: correctApiUrl,
-      writable: false,
-      configurable: false
-    });
+    try {
+      Object.defineProperty(import.meta.env, 'VITE_API_BASE_URL', {
+        value: correctApiUrl,
+        writable: false,
+        configurable: false
+      });
+    } catch (e) {
+      // Ignore if can't override
+    }
   }
   
   // Store correct URL globally for immediate access
   (window as any).__CORRECT_API_URL__ = correctApiUrl;
-  (window as any).__API_URL_FIXED_AT__ = Date.now(); // Timestamp for verification
+  (window as any).__API_URL_FIXED_AT__ = Date.now();
   console.log('[Main] ✅ API URL fixed at startup:', correctApiUrl);
   console.log('[Main] Hostname:', hostname, 'Protocol:', protocol);
-  console.log('[Main] Fix timestamp:', (window as any).__API_URL_FIXED_AT__);
   
-  // CRITICAL: If old IP is detected anywhere, force correct URL immediately
-  if (typeof import.meta !== 'undefined' && import.meta.env) {
-    const envUrl = import.meta.env.VITE_API_BASE_URL;
-    if (envUrl && envUrl.includes('72.60.101.14:8000')) {
-      console.error('[Main] 🚨 BLOCKING old IP from env var!');
-      // Override it
-      try {
-        Object.defineProperty(import.meta.env, 'VITE_API_BASE_URL', {
-          value: correctApiUrl,
-          writable: false,
-          configurable: false
-        });
-      } catch (e) {
-        console.warn('[Main] Could not override env var, but URL is fixed in window');
+  // CRITICAL: Intercept ALL fetch calls to block old IP
+  const originalFetch = window.fetch;
+  window.fetch = function(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    let url: string;
+    if (typeof input === 'string') {
+      url = input;
+    } else if (input instanceof URL) {
+      url = input.toString();
+    } else {
+      url = input.url;
+    }
+    
+    // ABSOLUTE BLOCK: Never allow old IP in any fetch call
+    if (url.includes('72.60.101.14:8000')) {
+      console.error('[Main] 🚨 BLOCKED old IP in fetch call! Original:', url);
+      // Replace with correct URL
+      url = url.replace(/https?:\/\/72\.60\.101\.14:8000\/api\/v1/g, correctApiUrl);
+      url = url.replace(/https?:\/\/72\.60\.101\.14:8000/g, correctApiUrl.replace('/api/v1', ''));
+      console.log('[Main] ✅ Replaced with:', url);
+      
+      // Update the input
+      if (typeof input === 'string') {
+        input = url as any;
+      } else if (input instanceof URL) {
+        input = new URL(url) as any;
+      } else {
+        input = { ...input, url } as any;
       }
     }
-  }
+    
+    return originalFetch.call(this, input as any, init);
+  };
+  
+  console.log('[Main] ✅ Fetch interceptor installed to block old IP');
 }
 
 import { createRoot } from "react-dom/client";
