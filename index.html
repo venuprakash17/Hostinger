@@ -24,5 +24,49 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // CRITICAL: Force reload if old cached code is detected
+      (function() {
+        // Wait for scripts to load, then check
+        window.addEventListener('load', function() {
+          setTimeout(function() {
+            // Check if we're loading the correct new build
+            const scripts = document.querySelectorAll('script[src*="index-"]');
+            let foundOldBuild = false;
+            scripts.forEach(function(script) {
+              const src = script.getAttribute('src') || '';
+              // Old build hashes: D7MacLd2, DMTPXsNz
+              if (src.includes('index-D7MacLd2.js') || src.includes('index-DMTPXsNz.js')) {
+                foundOldBuild = true;
+                console.error('🚨 OLD CACHED BUILD DETECTED! Forcing reload...');
+              }
+            });
+            
+            // Also check if main.tsx fix is present
+            if (!window.__CORRECT_API_URL__) {
+              console.error('🚨 URL fix not detected! Forcing reload...');
+              foundOldBuild = true;
+            }
+            
+            if (foundOldBuild) {
+              // Force hard reload with cache bust
+              if (window.location.search.indexOf('nocache') === -1) {
+                window.location.href = window.location.href.split('?')[0] + '?nocache=' + Date.now() + '&reload=1';
+              } else {
+                // If already reloaded once, clear cache and reload
+                if ('caches' in window) {
+                  caches.keys().then(function(names) {
+                    names.forEach(function(name) { caches.delete(name); });
+                    window.location.reload(true);
+                  });
+                } else {
+                  window.location.reload(true);
+                }
+              }
+            }
+          }, 500);
+        });
+      })();
+    </script>
   </body>
 </html>

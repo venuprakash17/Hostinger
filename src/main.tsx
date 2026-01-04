@@ -31,8 +31,28 @@ if (typeof window !== 'undefined') {
   
   // Store correct URL globally for immediate access
   (window as any).__CORRECT_API_URL__ = correctApiUrl;
+  (window as any).__API_URL_FIXED_AT__ = Date.now(); // Timestamp for verification
   console.log('[Main] ✅ API URL fixed at startup:', correctApiUrl);
   console.log('[Main] Hostname:', hostname, 'Protocol:', protocol);
+  console.log('[Main] Fix timestamp:', (window as any).__API_URL_FIXED_AT__);
+  
+  // CRITICAL: If old IP is detected anywhere, force correct URL immediately
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
+    const envUrl = import.meta.env.VITE_API_BASE_URL;
+    if (envUrl && envUrl.includes('72.60.101.14:8000')) {
+      console.error('[Main] 🚨 BLOCKING old IP from env var!');
+      // Override it
+      try {
+        Object.defineProperty(import.meta.env, 'VITE_API_BASE_URL', {
+          value: correctApiUrl,
+          writable: false,
+          configurable: false
+        });
+      } catch (e) {
+        console.warn('[Main] Could not override env var, but URL is fixed in window');
+      }
+    }
+  }
 }
 
 import { createRoot } from "react-dom/client";
