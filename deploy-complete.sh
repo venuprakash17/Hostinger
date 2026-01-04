@@ -316,4 +316,20 @@ echo -e "   ${GREEN}Password:${NC} Admin123!"
 echo -e "   ${YELLOW}⚠️  Please change this password after first login!${NC}"
 echo ""
 
+# Step 12: Run comprehensive tests
+echo -e "${YELLOW}🧪 Step 12: Running comprehensive service tests...${NC}"
+if [ -f "./test-all-services.sh" ]; then
+    ./test-all-services.sh || echo -e "${YELLOW}⚠️  Some tests failed, but deployment completed${NC}"
+else
+    echo -e "${YELLOW}⚠️  Test script not found, skipping tests${NC}"
+fi
+echo ""
+
 echo -e "${GREEN}🎉 Deployment process completed!${NC}"
+echo ""
+echo -e "${BLUE}📋 IMPORTANT: Clear Browser Cache${NC}"
+echo -e "   1. Close ALL browser windows"
+echo -e "   2. Open fresh incognito window"
+echo -e "   3. Visit: https://${DOMAIN}/login"
+echo -e "   4. Check console (F12) for: [Main] ✅ API URL fixed at startup"
+echo ""
