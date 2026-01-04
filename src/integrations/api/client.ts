@@ -101,11 +101,33 @@ const clearTokens = () => {
 class APIClient {
   private getBaseURL(): string {
     // Always get fresh URL at runtime with detailed logging
-    const url = getRuntimeApiBaseUrl();
-    // Log every time to help debug (only in production)
-    if (typeof window !== 'undefined' && !import.meta.env.DEV) {
-      console.log('[API Client] getBaseURL() called, returning:', url);
+    let url = getRuntimeApiBaseUrl();
+    
+    // CRITICAL FIX: Force correct URL if wrong one detected
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname;
+      
+      // If we're on production domain but got wrong URL, force correct one
+      if ((hostname === 'svnaprojob.online' || hostname === 'www.svnaprojob.online') && 
+          (url.includes('72.60.101.14') || url.includes('localhost:8000'))) {
+        console.warn('[API Client] ⚠️ WRONG URL DETECTED! Forcing correct URL...');
+        url = 'https://svnaprojob.online/api/v1';
+        console.log('[API Client] ✅ FORCED URL to:', url);
+      }
+      
+      // If we're on IP but got wrong URL, force correct one
+      if (hostname.includes('72.60.101.14') && !url.includes('svnaprojob.online')) {
+        console.warn('[API Client] ⚠️ WRONG URL DETECTED on IP! Forcing correct URL...');
+        url = 'https://svnaprojob.online/api/v1';
+        console.log('[API Client] ✅ FORCED URL to:', url);
+      }
+    }
+    
+    // Log every time to help debug
+    if (typeof window !== 'undefined') {
+      console.log('[API Client] getBaseURL() returning:', url);
       console.log('[API Client] Current hostname:', window.location.hostname);
+      console.log('[API Client] Current URL:', window.location.href);
     }
     return url;
   }

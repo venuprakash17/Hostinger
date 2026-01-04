@@ -72,13 +72,36 @@ echo -e "${BLUE}Building with:${NC}"
 echo -e "  VITE_API_BASE_URL=${VITE_API_BASE_URL}"
 echo -e "  VITE_WS_BASE_URL=${VITE_WS_BASE_URL}"
 
+# Clean build directory to ensure fresh build
+echo -e "${BLUE}Cleaning previous build...${NC}"
+rm -rf dist
+
 npm run build
 
-# Verify the build has the correct URL embedded
-if grep -r "72.60.101.14:8000" dist/ 2>/dev/null | head -1; then
-    echo -e "${YELLOW}⚠️  Warning: Found old IP address in build. Rebuilding...${NC}"
-    rm -rf dist
+# Verify the build succeeded
+if [ ! -d "dist" ]; then
+    echo -e "${RED}❌ Build failed! dist folder not found.${NC}"
+    exit 1
+fi
+
+# Verify the build has the correct URL embedded (should NOT have old IP)
+echo -e "${YELLOW}🔍 Verifying build contains correct code...${NC}"
+if grep -r "72.60.101.14:8000" dist/assets/*.js 2>/dev/null | head -1; then
+    echo -e "${RED}❌ ERROR: Found old IP address in build!${NC}"
+    echo -e "${YELLOW}Rebuilding with clean cache...${NC}"
+    rm -rf dist node_modules/.vite
     npm run build
+    if grep -r "72.60.101.14:8000" dist/assets/*.js 2>/dev/null | head -1; then
+        echo -e "${RED}❌ Still found old IP after rebuild. Check source code.${NC}"
+        exit 1
+    fi
+fi
+
+# Verify new code is present
+if grep -r "Runtime detection" dist/assets/*.js 2>/dev/null | head -1 > /dev/null; then
+    echo -e "${GREEN}✅ New runtime detection code found in build${NC}"
+else
+    echo -e "${YELLOW}⚠️  Warning: Runtime detection code not found (may be minified)${NC}"
 fi
 
 if [ ! -d "dist" ]; then
