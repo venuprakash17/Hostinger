@@ -188,6 +188,12 @@ ssh ${SERVER_USER}@${SERVER_HOST} << 'ENDSSH'
     # Wait for backend to start
     sleep 3
     
+    # Update nginx config if new one exists
+    if [ -f /root/elevate-edu/nginx.production.conf ]; then
+        echo "Updating nginx configuration..."
+        cp /root/elevate-edu/nginx.production.conf /etc/nginx/sites-available/svnaprojob.online 2>/dev/null || true
+    fi
+    
     # Clear all caches
     echo "Clearing caches..."
     rm -rf /var/cache/nginx/*
@@ -200,6 +206,7 @@ ssh ${SERVER_USER}@${SERVER_HOST} << 'ENDSSH'
         echo "✅ Nginx reloaded"
     else
         echo "⚠️  Nginx configuration test failed"
+        echo "   Check: nginx -t"
     fi
     
     echo "✅ Server setup complete"
@@ -318,10 +325,12 @@ echo ""
 
 # Step 12: Run comprehensive tests
 echo -e "${YELLOW}🧪 Step 12: Running comprehensive service tests...${NC}"
-if [ -f "./test-all-services.sh" ]; then
-    ./test-all-services.sh || echo -e "${YELLOW}⚠️  Some tests failed, but deployment completed${NC}"
+sleep 3  # Wait for services to be ready
+if [ -f "test-all-services.sh" ]; then
+    bash test-all-services.sh || echo -e "${YELLOW}⚠️  Some tests failed, but deployment completed${NC}"
 else
     echo -e "${YELLOW}⚠️  Test script not found, skipping tests${NC}"
+    echo -e "${BLUE}   You can run tests manually: ./test-all-services.sh${NC}"
 fi
 echo ""
 
