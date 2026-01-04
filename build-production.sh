@@ -7,8 +7,8 @@ echo "🚀 Building Frontend for Production..."
 echo ""
 
 # Set production environment variables
-export VITE_API_BASE_URL="http://72.60.101.14:8000/api/v1"
-export VITE_WS_BASE_URL="ws://72.60.101.14:8000"
+export VITE_API_BASE_URL="https://svnaprojob.online/api/v1"
+export VITE_WS_BASE_URL="wss://svnaprojob.online"
 
 # Check if node_modules exists
 if [ ! -d "node_modules" ]; then

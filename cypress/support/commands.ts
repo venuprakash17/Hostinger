@@ -25,28 +25,32 @@ declare global {
 Cypress.Commands.add('loginAs', (email: string, password: string, expectedRole?: string) => {
   cy.visit('/login');
   
-  // Wait for login page to load
-  cy.contains('Login', { timeout: 10000 }).should('be.visible');
+  // Wait for login page to load - check for any email input field
+  cy.get('input[type="email"], input[name="email"], #student-email, #staff-email', { timeout: 10000 }).should('be.visible');
   
   // Determine which tab to use based on email or expected role
   const isStudent = email.includes('student') || expectedRole === 'student';
   
   if (!isStudent) {
-    // Click on Faculty/Admin tab for non-students
-    cy.contains('Faculty / Admin').click();
+    // Click on Staff tab for non-students
+    cy.get('button[role="tab"]:contains("Staff"), button:contains("Faculty")', { timeout: 5000 }).click();
     cy.wait(500);
     
     // Use staff email and password fields
-    cy.get('#staff-email').should('be.visible').clear().type(email);
-    cy.get('#staff-password').should('be.visible').clear().type(password);
+    cy.get('#staff-email', { timeout: 5000 }).should('be.visible').clear().type(email);
+    cy.get('#staff-password', { timeout: 5000 }).should('be.visible').clear().type(password);
   } else {
-    // Student tab is default
-    cy.get('#student-email').should('be.visible').clear().type(email);
-    cy.get('#student-password').should('be.visible').clear().type(password);
+    // Student tab is default, ensure we're on student tab
+    cy.get('button[role="tab"]:contains("Student")', { timeout: 5000 }).click();
+    cy.wait(300);
+    
+    // Use student email and password fields
+    cy.get('#student-email', { timeout: 5000 }).should('be.visible').clear().type(email);
+    cy.get('#student-password', { timeout: 5000 }).should('be.visible').clear().type(password);
   }
   
-  // Submit form
-  cy.get('button[type="submit"]').contains('Login').click();
+  // Submit form - button text is "Sign In as Student" or "Sign In as Staff"
+  cy.get('button[type="submit"]', { timeout: 5000 }).should('be.visible').click();
   
   // Wait for navigation - increased timeout for login processing
   cy.url({ timeout: 20000 }).should('not.include', '/login');

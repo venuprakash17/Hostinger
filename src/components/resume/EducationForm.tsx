@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2, Edit2, X } from "lucide-react";
+import { Plus, Trash2, Edit2, X, GraduationCap } from "lucide-react";
 import { Education } from "@/hooks/useStudentProfile";
 import { useToast } from "@/hooks/use-toast";
 import { resumeStorage } from "@/lib/resumeStorage";
@@ -169,10 +169,18 @@ export function EducationForm({ education }: EducationFormProps) {
   };
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="border-2 shadow-md hover:shadow-lg transition-shadow duration-300">
+      <CardHeader className="bg-gradient-to-r from-primary/5 to-primary/10 border-b">
         <div className="flex items-center justify-between">
-          <CardTitle>Education</CardTitle>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-primary/20 rounded-lg">
+              <GraduationCap className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-xl font-bold">Education</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">Your academic background and qualifications</p>
+            </div>
+          </div>
           {!isAdding && (
             <Button onClick={() => setIsAdding(true)} size="sm">
               <Plus className="w-4 h-4 mr-2" />

@@ -3,8 +3,8 @@
  * Clean, modern design with prominent preview and real-time template switching
  */
 
-import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import React, { useState, useEffect, useMemo, useCallback, memo } from 'react';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,7 @@ import {
   InternshipFocused,
   MinimalATSPro,
 } from './templates';
+import { ResumePreview } from './ResumePreview';
 import { 
   type ResumeData, 
   optimizeResume, 
@@ -38,7 +39,16 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { ChevronDown } from 'lucide-react';
 import { ProjectSuggestionModal } from './ProjectSuggestionModal';
 import { resumeStorage } from '@/lib/resumeStorage';
-import { CustomizationPanel, CustomizationSettings, DEFAULT_SETTINGS } from './CustomizationPanel';
+
+// Helper function to get API base URL
+const getAPIBase = () => {
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  // If in development and URL contains production IP, use localhost
+  if (import.meta.env.DEV && envUrl && envUrl.includes('72.60.101.14')) {
+    return 'http://localhost:8000/api/v1';
+  }
+  return envUrl || 'http://localhost:8000/api/v1';
+};
 
 interface ResumePreviewModalProps {
   open: boolean;
@@ -47,15 +57,17 @@ interface ResumePreviewModalProps {
   targetRole?: string;
   companyName?: string;
   jobDescription?: string;
+  mode?: 'ai-powered'; // Only AI-powered mode supported
 }
 
-export function ResumePreviewModal({ 
+export const ResumePreviewModal = memo(function ResumePreviewModal({ 
   open, 
   onOpenChange, 
   resumeData, 
   targetRole: initialTargetRole,
   companyName: initialCompanyName,
-  jobDescription: initialJobDescription
+  jobDescription: initialJobDescription,
+  mode = 'ai-powered' as const
 }: ResumePreviewModalProps) {
   const { toast } = useToast();
   const [selectedTemplate, setSelectedTemplate] = useState<ResumeTemplate>('fresher_classic');
@@ -83,8 +95,22 @@ export function ResumePreviewModal({
     })
   );
 
-  // Customization settings
-  const [customizationSettings, setCustomizationSettings] = useState<CustomizationSettings>(DEFAULT_SETTINGS);
+  // For AI-powered mode, we use displayData directly (no customization panel)
+  // IMPORTANT: This must update when displayData.projects changes
+  const customizedData = useMemo(() => {
+    console.log('[ResumePreview] customizedData memo updated:', {
+      hasProjects: !!displayData.projects,
+      projectCount: displayData.projects?.length || 0,
+      firstProjectTitle: displayData.projects?.[0]?.project_title,
+      firstProjectDesc: displayData.projects?.[0]?.description?.substring(0, 50),
+    });
+    return displayData;
+  }, [displayData, displayData.projects]); // Explicitly depend on projects
+
+  // Memoize getCustomizedData function
+  const getCustomizedData = useCallback(() => {
+    return customizedData;
+  }, [customizedData]);
 
   // Format skills for API (backend expects flat list)
   const formatSkillsForAPI = (skills: Record<string, string[]> | string[] | undefined): string[] => {
@@ -214,37 +240,226 @@ export function ResumePreviewModal({
     }
   };
 
-  // Load enhanced projects from sessionStorage if available (from Smart Analysis)
+  // Auto-rewrite ALL projects to 3 sentences when preview opens (AI-powered)
+  const [isAutoRewriting, setIsAutoRewriting] = useState(false);
+  
+  // Auto-rewrite all projects on modal open
   useEffect(() => {
-    if (!open) return; // Only load when modal opens
+    if (!open) return; // Only when modal opens
     
-    try {
-      const enhancedData = sessionStorage.getItem('resume_enhanced_projects');
-      if (enhancedData) {
-        const parsed = JSON.parse(enhancedData);
-        const { projects: enhancedProjects } = parsed;
-        if (enhancedProjects && enhancedProjects.length > 0) {
-          // Use enhanced projects instead of original - ONLY for preview
-          setDisplayData(prev => ({
-            ...prev,
-            projects: enhancedProjects,
-          }));
-          setPreviewKey(prev => prev + 1);
-          toast({
-            title: 'Enhanced Projects Loaded',
-            description: `Loaded ${enhancedProjects.length} AI-enhanced project(s) with optimized descriptions for preview. Your original projects in Build section remain unchanged.`,
-          });
-          return;
+    const autoRewriteAllProjects = async () => {
+      // ALWAYS force rewrite to ensure 3-sentence descriptions
+      // Check cache first, but validate it has proper 3-sentence descriptions
+      let useCached = false;
+      try {
+        const enhancedData = sessionStorage.getItem('resume_enhanced_projects');
+        if (enhancedData) {
+          const parsed = JSON.parse(enhancedData);
+          const { projects: enhancedProjects, timestamp } = parsed;
+          
+          // Check if data is recent (within 1 hour) AND has valid 3-sentence descriptions
+          const isRecent = timestamp && (Date.now() - timestamp) < 3600000;
+          
+          if (enhancedProjects && enhancedProjects.length > 0 && isRecent) {
+            // Validate that cached projects have 3-sentence descriptions
+            const allHaveThreeSentences = enhancedProjects.every((proj: any) => {
+              const desc = proj.description || '';
+              const sentences = desc.split('.').filter((s: string) => s.trim().length > 10);
+              return sentences.length === 3;
+            });
+            
+            if (allHaveThreeSentences) {
+              // Use cached data - it's valid (top 3 projects, ResumeItNow best practice)
+              // Ensure we only use top 3 projects
+              const top3Projects = enhancedProjects.slice(0, 3);
+              // Create a completely new object to ensure React detects the change
+              const updatedData = {
+                ...resumeData,
+                projects: top3Projects,
+              };
+              setDisplayData(updatedData);
+              setPreviewKey(prev => prev + 1);
+              console.log('[ResumePreview] Loaded valid cached top 3 enhanced projects (ResumeItNow best practice):', {
+                count: top3Projects.length,
+                firstDesc: top3Projects[0]?.description?.substring(0, 100),
+                sentenceCount: top3Projects[0]?.description?.split('.').filter(s => s.trim().length > 10).length,
+              });
+              useCached = true;
+            } else {
+              console.log('[ResumePreview] Cached projects missing 3-sentence descriptions, will rewrite');
+              sessionStorage.removeItem('resume_enhanced_projects');
+            }
+          } else if (enhancedProjects && !isRecent) {
+            // Clear stale data
+            sessionStorage.removeItem('resume_enhanced_projects');
+            console.log('[ResumePreview] Cleared stale enhanced projects');
+          }
         }
+      } catch (error) {
+        console.warn('[ResumePreview] Failed to check cached projects:', error);
       }
-    } catch (error) {
-      console.warn('Failed to load enhanced projects:', error);
-    }
+      
+      // If we used cached data, skip rewrite
+      if (useCached) {
+        return;
+      }
+      
+      // Get top 3 projects (ResumeItNow best practice: exactly 3 projects)
+      // First check if we have selected projects from Smart Analysis
+      let projectsToEnhance = resumeData.projects || [];
+      const roleToUse = targetRole || initialTargetRole || '';
+      
+      // Check for selected projects from Smart Analysis modal
+      try {
+        const enhancedData = sessionStorage.getItem('resume_enhanced_projects');
+        if (enhancedData) {
+          const parsed = JSON.parse(enhancedData);
+          const { projects: enhancedProjects, selectedTitles } = parsed;
+          
+          // If we have selected titles, use only those projects (top 3)
+          if (selectedTitles && selectedTitles.length > 0) {
+            projectsToEnhance = (resumeData.projects || []).filter((p: any) => 
+              selectedTitles.includes(p.project_title || p.title)
+            ).slice(0, 3); // Ensure max 3
+            console.log('[ResumePreview] Using selected projects from Smart Analysis:', projectsToEnhance.length);
+          } else if (enhancedProjects && enhancedProjects.length > 0) {
+            // Use enhanced projects if available (already top 3)
+            projectsToEnhance = enhancedProjects.slice(0, 3);
+            console.log('[ResumePreview] Using enhanced projects (top 3):', projectsToEnhance.length);
+          } else {
+            // Fallback: Use top 3 projects based on ranking or first 3
+            projectsToEnhance = (resumeData.projects || []).slice(0, 3);
+            console.log('[ResumePreview] Using top 3 projects (fallback):', projectsToEnhance.length);
+          }
+        } else {
+          // No enhanced data: Use top 3 projects (ResumeItNow best practice)
+          projectsToEnhance = (resumeData.projects || []).slice(0, 3);
+          console.log('[ResumePreview] Using top 3 projects (no cache):', projectsToEnhance.length);
+        }
+      } catch (error) {
+        console.warn('[ResumePreview] Error checking selected projects, using top 3:', error);
+        projectsToEnhance = (resumeData.projects || []).slice(0, 3);
+      }
+      
+      if (projectsToEnhance.length > 0) {
+        setIsAutoRewriting(true);
+        
+        // Set initial display data immediately (show original while processing)
+        setDisplayData(resumeData);
+        
+        try {
+          const API_BASE = getAPIBase();
+          const token = localStorage.getItem('access_token');
+          
+          console.log('[ResumePreview] Auto-rewriting top 3 projects to 3 sentences (ResumeItNow best practice):', projectsToEnhance.length, roleToUse ? `for ${roleToUse}` : '');
+          
+          // Create AbortController for timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
+          
+          const response = await fetch(`${API_BASE}/resume/rewrite-project-descriptions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              projects: projectsToEnhance, // Rewrite top 3 projects only (ResumeItNow best practice)
+              target_role: roleToUse || undefined,
+            }),
+            signal: controller.signal,
+          });
+          
+          clearTimeout(timeoutId);
+
+          if (response.ok) {
+            const result = await response.json();
+            const rewrittenProjects = result.rewritten_projects || [];
+            
+            if (rewrittenProjects.length > 0) {
+              // Save top 3 rewritten projects to sessionStorage (ResumeItNow best practice)
+              const top3Rewritten = rewrittenProjects.slice(0, 3);
+              sessionStorage.setItem('resume_enhanced_projects', JSON.stringify({
+                projects: top3Rewritten,
+                selectedTitles: top3Rewritten.map((p: any) => p.project_title || p.title),
+                timestamp: Date.now(),
+                autoRewritten: true,
+              }));
+              
+              // Update display data with top 3 rewritten projects - FORCE UPDATE
+              // Create a completely new object to ensure React detects the change
+              const updatedData = {
+                ...resumeData,
+                projects: top3Rewritten,
+              };
+              
+              setDisplayData(updatedData);
+              
+              // Force preview refresh with a new key
+              setPreviewKey(prev => prev + 1);
+              
+              console.log('[ResumePreview] Updated displayData with top 3 enhanced projects:', {
+                projectCount: top3Rewritten.length,
+                firstProject: top3Rewritten[0]?.project_title,
+                firstDescription: top3Rewritten[0]?.description?.substring(0, 100),
+                sentenceCount: top3Rewritten[0]?.description?.split('.').filter(s => s.trim().length > 10).length,
+              });
+              
+              console.log('[ResumePreview] Auto-rewrote top 3 projects (ResumeItNow best practice):', top3Rewritten.length);
+              console.log('[ResumePreview] Sample enhanced project:', {
+                title: top3Rewritten[0]?.project_title,
+                description: top3Rewritten[0]?.description,
+                sentenceCount: top3Rewritten[0]?.description?.split('.').filter(s => s.trim()).length,
+              });
+              
+              toast({
+                title: 'AI Enhancement Complete',
+                description: `Top 3 projects (ResumeItNow best practice) have been automatically enhanced with professional 3-sentence descriptions${roleToUse ? ` optimized for ${roleToUse}` : ''}.`,
+              });
+            } else {
+              console.warn('[ResumePreview] No rewritten projects received');
+              setDisplayData(resumeData);
+            }
+          } else {
+            const errorText = await response.text();
+            console.error('[ResumePreview] Failed to rewrite projects:', errorText);
+            toast({
+              title: 'Enhancement Failed',
+              description: 'Could not enhance projects. Using original descriptions. You can try again using the button below.',
+              variant: 'destructive',
+            });
+            setDisplayData(resumeData);
+          }
+        } catch (error: any) {
+          if (error.name === 'AbortError') {
+            console.error('[ResumePreview] Request timeout - enhancement took too long');
+            toast({
+              title: 'Enhancement Timeout',
+              description: 'AI enhancement is taking longer than expected. Using original descriptions. You can try again using the button below.',
+              variant: 'destructive',
+            });
+          } else {
+            console.error('[ResumePreview] Error auto-rewriting projects:', error);
+            toast({
+              title: 'Enhancement Error',
+              description: error.message || 'Failed to enhance projects. Using original descriptions.',
+              variant: 'destructive',
+            });
+          }
+          setDisplayData(resumeData);
+        } finally {
+          setIsAutoRewriting(false);
+        }
+      } else {
+        // No projects or no target role - just use original data
+        setDisplayData(resumeData);
+        setPreviewKey(prev => prev + 1);
+      }
+    };
     
-    // Fallback to original resumeData
-    setDisplayData(resumeData);
-    setPreviewKey(prev => prev + 1);
-  }, [open, resumeData]);
+    autoRewriteAllProjects();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]); // Only run when modal opens, targetRole and resumeData are stable
 
   // Sync company name from input to display data when changed (without optimization)
   useEffect(() => {
@@ -260,53 +475,98 @@ export function ResumePreviewModal({
     }
   }, [companyName]);
 
-  // Sync company name from input to resume data
-  useEffect(() => {
-    if (companyName && displayData.profile) {
-      setDisplayData({
-        ...displayData,
-        profile: {
-          ...displayData.profile,
-          company_name: companyName,
-        },
-      });
-    }
-  }, [companyName]);
+  // Sync company name from input to resume data (removed duplicate - already handled above)
+  // This useEffect was causing infinite loops, removed
 
   const handleGeneratePDF = async () => {
-    if (!displayData) return;
+    if (!displayData) {
+      toast({
+        title: 'Error',
+        description: 'No resume data available',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
     setIsGeneratingPDF(true);
     try {
-      // Use frontend PDF generator to match preview exactly
+      // CRITICAL: Use customizedData directly (same as preview) to ensure perfect sync
+      // customizedData is memoized from displayData, so it's the EXACT same data shown in preview
       const customizedData = getCustomizedData();
-      const pdfData = {
+      
+      // Get the EXACT projects array from customizedData (same as what preview uses)
+      // Preview uses: <ResumePreview resumeData={customizedData} />
+      // So we must use customizedData.projects (not displayData.projects)
+      const previewProjects = customizedData.projects || [];
+      
+      // Use EXACT same projects as preview (customizedData.projects)
+      // This ensures PDF matches preview 100%
+      let finalData = {
         ...customizedData,
-        // Ensure skills are in correct format
-        skills: typeof customizedData.skills === 'object' && !Array.isArray(customizedData.skills)
-          ? customizedData.skills
-          : { technical: Array.isArray(customizedData.skills) ? customizedData.skills : [] },
+        projects: previewProjects, // Use EXACT same projects array as preview (no slicing, no modification)
       };
       
-      const blob = await generateATSSafePDF(pdfData as any, selectedTemplate, customizationSettings);
-      const filename = `resume_${customizedData.profile?.full_name?.replace(/\s+/g, '_') || 'resume'}_${selectedTemplate}.pdf`;
-      // Create download link
+      console.log('[PDF Download] Using customizedData projects (EXACT same as preview):', {
+        projectCount: finalData.projects.length,
+        previewProjectCount: previewProjects.length,
+        firstProjectTitle: finalData.projects[0]?.project_title,
+        firstProjectDesc: finalData.projects[0]?.description?.substring(0, 200),
+        previewFirstDesc: previewProjects[0]?.description?.substring(0, 200),
+        areSame: finalData.projects === previewProjects, // Same array reference
+        areDescriptionsSame: finalData.projects[0]?.description === previewProjects[0]?.description,
+        source: 'customizedData (same as preview component)'
+      });
+      
+      const pdfData = {
+        ...finalData,
+        // Ensure skills are in correct format
+        skills: typeof finalData.skills === 'object' && !Array.isArray(finalData.skills)
+          ? finalData.skills
+          : { technical: Array.isArray(finalData.skills) ? finalData.skills : [] },
+      };
+      
+      console.log('[PDF Download] Generating PDF with:', {
+        template: selectedTemplate,
+        name: pdfData.profile?.full_name,
+        projectsCount: pdfData.projects?.length || 0,
+        hasEnhancedProjects: finalData.projects !== customizedData.projects,
+      });
+      
+      const blob = await generateATSSafePDF(pdfData as any, selectedTemplate);
+      
+      if (!blob || blob.size === 0) {
+        throw new Error('Generated PDF is empty');
+      }
+      
+      const filename = `resume_${pdfData.profile?.full_name?.replace(/\s+/g, '_') || 'resume'}_${selectedTemplate}_${Date.now()}.pdf`;
+      
+      // Create download link with better error handling
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.download = filename;
+      link.style.display = 'none';
+      
       document.body.appendChild(link);
+      
+      // Trigger download
       link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      
+      // Cleanup
+      setTimeout(() => {
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }, 100);
+      
       toast({
-        title: 'PDF Generated',
+        title: 'PDF Generated Successfully',
         description: `Your resume PDF (${TEMPLATE_CONFIGS[selectedTemplate].name}) has been downloaded`,
       });
     } catch (error) {
       console.error('Error generating PDF:', error);
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to generate PDF',
+        title: 'PDF Generation Failed',
+        description: error instanceof Error ? error.message : 'Failed to generate PDF. Please try again.',
         variant: 'destructive',
       });
     } finally {
@@ -378,30 +638,8 @@ export function ResumePreviewModal({
     });
   };
 
-  const renderTemplate = () => {
-    if (!displayData) return null;
-    const props = { resumeData: displayData, className: 'resume-preview-template' };
-    const templateKey = `template-${selectedTemplate}-${previewKey}`;
-    
-    switch (selectedTemplate) {
-      case 'fresher_classic':
-        return <FresherClassic key={templateKey} {...props} />;
-      case 'project_focused':
-        return <ProjectFocused key={templateKey} {...props} />;
-      case 'skills_first':
-        return <SkillsFirst key={templateKey} {...props} />;
-      case 'internship_focused':
-        return <InternshipFocused key={templateKey} {...props} />;
-      case 'minimal_ats':
-        return <MinimalATSPro key={templateKey} {...props} />;
-      case 'modern':
-      case 'professional':
-      case 'minimal':
-        return <FresherClassic key={templateKey} {...props} />;
-      default:
-        return <FresherClassic key={templateKey} {...props} />;
-    }
-  };
+  // Use optimized ResumePreview component for real-time updates
+  // This component uses CSS variables and React.memo for better performance
 
   const fresherTemplates: ResumeTemplate[] = [
     'fresher_classic', 
@@ -425,10 +663,13 @@ export function ResumePreviewModal({
                 <FileText className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <DialogTitle className="text-2xl font-bold tracking-tight">Resume Builder</DialogTitle>
-                <p className="text-sm text-muted-foreground mt-1.5 font-medium">
-                  Preview, optimize, and download your professional resume
-                </p>
+                <DialogTitle className="text-2xl font-bold tracking-tight flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-primary" />
+                  AI-Powered Resume Builder
+                </DialogTitle>
+                <DialogDescription className="text-sm text-muted-foreground mt-1.5 font-medium">
+                  AI-optimized templates with live preview and instant download
+                </DialogDescription>
               </div>
             </div>
             <Button
@@ -448,15 +689,91 @@ export function ResumePreviewModal({
           <div className="w-[360px] border-r border-border/50 bg-background/95 backdrop-blur-sm flex flex-col overflow-hidden shadow-lg">
             <ScrollArea className="flex-1">
               <div className="p-6 space-y-6">
-                {/* Canva-Style Customization Panel */}
+                {/* AI Optimization Info */}
                 <div className="pt-4 border-t mb-6">
-                  <CustomizationPanel
-                    settings={customizationSettings}
-                    onSettingsChange={(newSettings) => {
-                      setCustomizationSettings(newSettings);
-                      setPreviewKey(prev => prev + 1); // Force re-render
-                    }}
-                  />
+                  {isAutoRewriting ? (
+                    <Alert className="bg-blue-50 dark:bg-blue-950/20 border-blue-200">
+                      <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />
+                      <AlertDescription className="text-sm text-blue-800 dark:text-blue-200">
+                        <strong>AI Enhancement in Progress:</strong> Rewriting all project descriptions to professional 3-sentence format{targetRole ? ` optimized for ${targetRole}` : ''}...
+                      </AlertDescription>
+                    </Alert>
+                  ) : (
+                    <Alert className="bg-green-50 dark:bg-green-950/20 border-green-200">
+                      <Sparkles className="h-4 w-4 text-green-600" />
+                      <AlertDescription className="text-sm text-green-800 dark:text-green-200">
+                        <strong>AI-Powered Mode:</strong> All project descriptions have been automatically enhanced with professional 3-sentence format. Select a template below to preview and download.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  
+                  {/* Manual Enhance Button (Fallback) */}
+                  {!isAutoRewriting && displayData.projects && displayData.projects.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-3 w-full"
+                      onClick={async () => {
+                        setIsAutoRewriting(true);
+                        try {
+                          const API_BASE = getAPIBase();
+                          const token = localStorage.getItem('access_token');
+                          const projects = displayData.projects || [];
+                          const roleToUse = targetRole || initialTargetRole || '';
+                          
+                          console.log('[ResumePreview] Manual enhance triggered:', projects.length);
+                          
+                          const response = await fetch(`${API_BASE}/resume/rewrite-project-descriptions`, {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'Authorization': `Bearer ${token}`,
+                            },
+                            body: JSON.stringify({
+                              projects: projects,
+                              target_role: roleToUse || undefined,
+                            }),
+                          });
+
+                          if (response.ok) {
+                            const result = await response.json();
+                            const rewrittenProjects = result.rewritten_projects || [];
+                            
+                            if (rewrittenProjects.length > 0) {
+                              sessionStorage.setItem('resume_enhanced_projects', JSON.stringify({
+                                projects: rewrittenProjects,
+                                timestamp: Date.now(),
+                                autoRewritten: true,
+                              }));
+                              
+                              setDisplayData(prev => ({
+                                ...prev,
+                                projects: rewrittenProjects,
+                              }));
+                              setPreviewKey(prev => prev + 1);
+                              
+                              toast({
+                                title: 'Projects Enhanced',
+                                description: `All ${rewrittenProjects.length} project(s) enhanced with 3-sentence descriptions.`,
+                              });
+                            }
+                          }
+                        } catch (error) {
+                          console.error('[ResumePreview] Manual enhance error:', error);
+                          toast({
+                            title: 'Enhancement Failed',
+                            description: 'Failed to enhance projects. Please try again.',
+                            variant: 'destructive',
+                          });
+                        } finally {
+                          setIsAutoRewriting(false);
+                        }
+                      }}
+                    >
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Re-Enhance All Projects with AI
+                    </Button>
+                  )}
                 </div>
 
                 {/* Template Selector - Beautiful Card-Based Selection */}
@@ -486,7 +803,9 @@ export function ResumePreviewModal({
                         return (
                           <div
                             key={templateId}
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
                               setSelectedTemplate(templateId);
                               setPreviewKey(prev => prev + 1);
                             }}
@@ -494,9 +813,19 @@ export function ResumePreviewModal({
                               relative group cursor-pointer transition-all duration-200
                               ${isSelected 
                                 ? 'ring-2 ring-primary ring-offset-2 shadow-lg scale-[1.02]' 
-                                : 'hover:ring-2 hover:ring-primary/50 hover:shadow-md'
+                                : 'hover:ring-2 hover:ring-primary/50 hover:shadow-md hover:scale-[1.01]'
                               }
+                              active:scale-[0.99]
                             `}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setSelectedTemplate(templateId);
+                                setPreviewKey(prev => prev + 1);
+                              }
+                            }}
                           >
                             <Card className={`
                               border-2 overflow-hidden
@@ -555,18 +884,9 @@ export function ResumePreviewModal({
                   </div>
                 </div>
 
-                {/* Canva-Style Customization Panel */}
-                <div className="pt-4 border-t">
-                  <CustomizationPanel
-                    settings={customizationSettings}
-                    onSettingsChange={(newSettings) => {
-                      setCustomizationSettings(newSettings);
-                      setPreviewKey(prev => prev + 1); // Force re-render
-                    }}
-                  />
-                </div>
+                {/* Removed customization panel - AI-only mode */}
 
-                {/* Customize Projects Section - Drag & Drop */}
+                {/* Projects Section - View Only (AI mode) */}
                 {displayData.projects && displayData.projects.length > 0 && (
                   <div className="space-y-3 pt-4 border-t">
                     <div className="flex items-center gap-2">
@@ -680,8 +1000,16 @@ export function ResumePreviewModal({
                   <Eye className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-base">Live Preview</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">Real-time template updates</p>
+                  <h3 className="font-semibold text-base flex items-center gap-2">
+                    Live Preview
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-500/10 text-green-700 dark:text-green-400 rounded-full text-xs font-medium">
+                      <div className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                      Real-time
+                    </span>
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Real-time template updates with AI optimization
+                  </p>
                 </div>
                 <Badge variant="secondary" className="ml-3 px-3 py-1 font-semibold">
                   {TEMPLATE_CONFIGS[selectedTemplate].name}
@@ -690,18 +1018,58 @@ export function ResumePreviewModal({
             </div>
             
             <ScrollArea className="flex-1 p-8">
-              <div className="flex justify-center items-start min-h-full py-6">
+              <div className="flex flex-col justify-center items-center min-h-full py-6 gap-6">
+                {/* Preview Container */}
                 <div
-                  key={previewKey}
-                  className="resume-preview-container bg-white shadow-2xl rounded-xl overflow-hidden border-4 border-border/20 transition-all duration-300 hover:shadow-3xl"
+                  key={`preview-${previewKey}-${selectedTemplate}`}
+                  className="resume-preview-container bg-white shadow-2xl rounded-xl overflow-hidden border-4 border-border/20 transition-all duration-200 hover:shadow-3xl hover:scale-[0.91]"
                   style={{
                     width: '8.5in',
                     minHeight: '11in',
                     transform: 'scale(0.9)',
                     transformOrigin: 'top center',
+                    transition: 'all 200ms cubic-bezier(0.4, 0, 0.2, 1)',
                   }}
                 >
-                  {renderTemplate()}
+                  <div className="resume-content-wrapper">
+                    {displayData && (
+                      <ResumePreview
+                        resumeData={customizedData}
+                        customization={undefined}
+                        template={selectedTemplate}
+                        previewKey={previewKey}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* Download Button at Bottom - Canva Style */}
+                <div className="w-full max-w-[8.5in] px-4">
+                  <Button
+                    onClick={handleGeneratePDF}
+                    disabled={isGeneratingPDF || !displayData}
+                    size="lg"
+                    className="w-full h-14 bg-gradient-to-r from-primary via-primary/95 to-primary text-white hover:from-primary/90 hover:via-primary/85 hover:to-primary/90 font-bold text-base shadow-2xl hover:shadow-3xl transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                  >
+                    {isGeneratingPDF ? (
+                      <>
+                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                        <span>Generating PDF...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download className="mr-2 h-5 w-5" />
+                        <span>Download Resume PDF</span>
+                        <span className="ml-2 text-xs opacity-90">({TEMPLATE_CONFIGS[selectedTemplate].name})</span>
+                      </>
+                    )}
+                  </Button>
+                  <p className="text-xs text-center text-muted-foreground mt-2 font-medium">
+                    <span className="inline-flex items-center gap-1">
+                      <div className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                      Preview matches download exactly
+                    </span>
+                  </p>
                 </div>
               </div>
             </ScrollArea>
@@ -712,7 +1080,7 @@ export function ResumePreviewModal({
       {/* Tailoring Suggestions Modal */}
     </Dialog>
   );
-}
+});
 
 // Sortable Project Item Component
 interface SortableProjectItemProps {

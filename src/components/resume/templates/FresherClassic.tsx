@@ -87,9 +87,9 @@ export function FresherClassic({ resumeData, className = '', customization }: Fr
     primaryColor: '#000000',
     secondaryColor: '#333333',
     accentColor: '#0066cc',
-    lineHeight: 1.4,
-    sectionSpacing: 15,
-    paragraphSpacing: 6,
+    lineHeight: 1.6, // Further increased for better readability
+    sectionSpacing: 22, // More spacing between sections
+    paragraphSpacing: 12, // More spacing between paragraphs/items
     marginPadding: 0.75,
     headerAlignment: 'center',
     sectionTitleStyle: 'both',
@@ -99,7 +99,7 @@ export function FresherClassic({ resumeData, className = '', customization }: Fr
     const base: React.CSSProperties = {
       fontSize: `${settings.sectionTitleFontSize}pt`,
       fontWeight: 'bold',
-      marginBottom: `${settings.paragraphSpacing}px`,
+      marginBottom: '10px', // Fixed spacing after section title
       marginTop: '0',
       textTransform: 'uppercase',
       letterSpacing: '0.5px',
@@ -200,8 +200,8 @@ export function FresherClassic({ resumeData, className = '', customization }: Fr
             Education
           </h2>
           {education.map((edu, idx) => (
-            <div key={idx} style={{ marginBottom: `${settings.paragraphSpacing}px` }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+            <div key={idx} style={{ marginBottom: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
                 <div>
                   <strong style={{ 
                     fontSize: `${settings.baseFontSize + 1}pt`,
@@ -247,8 +247,8 @@ export function FresherClassic({ resumeData, className = '', customization }: Fr
             Work Experience
           </h2>
           {work_experience.map((exp, idx) => (
-            <div key={idx} style={{ marginBottom: `${settings.paragraphSpacing}px` }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+            <div key={idx} style={{ marginBottom: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
                 <div>
                   <strong style={{ 
                     fontSize: `${settings.baseFontSize + 1}pt`,
@@ -270,7 +270,7 @@ export function FresherClassic({ resumeData, className = '', customization }: Fr
               </div>
               {exp.description && (
                 <p style={{ 
-                  margin: '3px 0', 
+                  margin: '5px 0', 
                   fontSize: `${settings.baseFontSize}pt`,
                   lineHeight: settings.lineHeight,
                   color: settings.secondaryColor
@@ -288,8 +288,8 @@ export function FresherClassic({ resumeData, className = '', customization }: Fr
             Projects
           </h2>
           {projects.map((proj, idx) => (
-            <div key={idx} style={{ marginBottom: `${settings.paragraphSpacing}px` }}>
-              <div style={{ marginBottom: '3px' }}>
+            <div key={idx} style={{ marginBottom: '18px' }}>
+              <div style={{ marginBottom: '6px' }}>
                 <strong style={{ 
                   fontSize: `${settings.baseFontSize + 1}pt`,
                   color: settings.primaryColor
@@ -297,21 +297,33 @@ export function FresherClassic({ resumeData, className = '', customization }: Fr
               </div>
               {proj.description && (
                 <p style={{ 
-                  margin: '3px 0', 
+                  margin: '8px 0 10px 0', 
                   fontSize: `${settings.baseFontSize}pt`,
                   lineHeight: settings.lineHeight,
-                  color: settings.secondaryColor
-                }}>{proj.description}</p>
+                  color: settings.secondaryColor,
+                  textAlign: 'justify',
+                  wordSpacing: '0.1em'
+                }}>
+                  {proj.description
+                    .replace(/^[-•*]\s+/gm, '') // Remove bullet points at start of lines
+                    .replace(/\n+/g, ' ') // Replace newlines with spaces
+                    .replace(/\s+/g, ' ') // Normalize whitespace
+                    .trim()}
+                </p>
               )}
               {proj.technologies_used && proj.technologies_used.length > 0 && (
                 <div style={{ 
-                  fontSize: `${settings.baseFontSize}pt`, 
-                  color: settings.secondaryColor 
+                  fontSize: `${settings.baseFontSize - 0.5}pt`, 
+                  color: settings.secondaryColor,
+                  fontStyle: 'italic',
+                  marginTop: '6px',
+                  marginBottom: '2px'
                 }}>
-                  Technologies: {Array.isArray(proj.technologies_used) ? proj.technologies_used.join(', ') : proj.technologies_used}
+                  <strong>Tech Stack:</strong> {Array.isArray(proj.technologies_used) ? proj.technologies_used.join(' • ') : proj.technologies_used}
                 </div>
               )}
-              {proj.contributions && proj.contributions.length > 0 && (
+              {/* Hide contributions if description is AI-enhanced (3 sentences) */}
+              {proj.contributions && proj.contributions.length > 0 && (!proj.description || proj.description.split('.').filter(s => s.trim().length > 10).length < 3) && (
                 <ul style={{ margin: '5px 0', paddingLeft: '20px' }}>
                   {proj.contributions.map((contribution, cIdx) => (
                     <li key={cIdx} style={{ 
@@ -340,7 +352,7 @@ export function FresherClassic({ resumeData, className = '', customization }: Fr
                 const skillsArray = Array.isArray(skillList) ? skillList : [];
                 if (skillsArray.length === 0) return null;
                 return (
-                  <div key={category} style={{ marginBottom: '5px' }}>
+                  <div key={category} style={{ marginBottom: '6px' }}>
                     <strong style={{ 
                       fontSize: `${settings.baseFontSize}pt`,
                       color: settings.primaryColor

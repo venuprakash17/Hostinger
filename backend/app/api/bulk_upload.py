@@ -822,15 +822,15 @@ async def bulk_upload_quizzes(
                 })
                 continue
             
-            # Determine scope based on role
-            scope_type = quiz_data.get('scope_type', 'section')
+            # Determine scope based on role (with validation)
+            requested_scope = quiz_data.get('scope_type', '')
             if user_info["is_super_admin"]:
-                scope_type = "svnapro"
+                scope_type = requested_scope if requested_scope == "svnapro" else "svnapro"
             elif user_info["is_admin"]:
-                scope_type = quiz_data.get('scope_type', 'college')
+                scope_type = requested_scope if requested_scope in ["college", "department", "section"] else "college"
             elif user_info["is_hod"]:
-                scope_type = quiz_data.get('scope_type', 'department')
-            else:
+                scope_type = requested_scope if requested_scope in ["department", "section"] else "department"
+            else:  # Faculty
                 scope_type = "section"
             
             # Set scope fields
@@ -847,13 +847,78 @@ async def bulk_upload_quizzes(
                 except:
                     pass
             
+            # Parse enhanced quiz features
+            assigned_branches = None
+            assigned_sections = None
+            if quiz_data.get('assigned_branches'):
+                if isinstance(quiz_data['assigned_branches'], str):
+                    # Comma-separated string
+                    assigned_branches = [int(x.strip()) for x in quiz_data['assigned_branches'].split(',') if x.strip()]
+                elif isinstance(quiz_data['assigned_branches'], list):
+                    assigned_branches = [int(x) for x in quiz_data['assigned_branches'] if x]
+            
+            if quiz_data.get('assigned_sections'):
+                if isinstance(quiz_data['assigned_sections'], str):
+                    # Comma-separated string
+                    assigned_sections = [int(x.strip()) for x in quiz_data['assigned_sections'].split(',') if x.strip()]
+                elif isinstance(quiz_data['assigned_sections'], list):
+                    assigned_sections = [int(x) for x in quiz_data['assigned_sections'] if x]
+            
+            # Parse questions (can be JSON string or array)
+            questions = quiz_data.get('questions', [])
+            if isinstance(questions, str):
+                try:
+                    questions = json.loads(questions)
+                except:
+                    questions = []
+            
+            # Parse question_bank_ids
+            question_bank_ids = None
+            if quiz_data.get('question_bank_ids'):
+                if isinstance(quiz_data['question_bank_ids'], str):
+                    question_bank_ids = [int(x.strip()) for x in quiz_data['question_bank_ids'].split(',') if x.strip()]
+                elif isinstance(quiz_data['question_bank_ids'], list):
+                    question_bank_ids = [int(x) for x in quiz_data['question_bank_ids'] if x]
+            
+            # Parse dates
+            start_time = None
+            end_time = None
+            if quiz_data.get('start_time'):
+                try:
+                    start_time = datetime.fromisoformat(str(quiz_data['start_time']).replace('Z', '+00:00'))
+                except:
+                    pass
+            
+            if quiz_data.get('end_time'):
+                try:
+                    end_time = datetime.fromisoformat(str(quiz_data['end_time']).replace('Z', '+00:00'))
+                except:
+                    pass
+            
+            # Role-based assignment restrictions
+            if assigned_branches and not user_info["is_admin"] and not user_info["is_super_admin"]:
+                # HOD/Faculty can't assign to multiple branches
+                assigned_branches = None
+            
+            if assigned_sections:
+                # Validate sections belong to user's scope
+                if user_info["is_hod"] or user_info["is_faculty"]:
+                    user_dept_id = user_info["department_id"]
+                    valid_sections = []
+                    for section_id in assigned_sections:
+                        section = db.query(Section).filter(Section.id == section_id).first()
+                        if section and section.department_id == user_dept_id:
+                            valid_sections.append(section_id)
+                    assigned_sections = valid_sections if valid_sections else None
+            
             quiz = Quiz(
                 title=quiz_data['title'],
                 description=quiz_data.get('description'),
                 subject=quiz_data.get('subject'),
                 duration_minutes=quiz_data.get('duration_minutes', 30),
                 total_marks=quiz_data.get('total_marks', 100),
-                questions=quiz_data.get('questions', []),
+                passing_marks=quiz_data.get('passing_marks'),
+                questions=questions,
                 is_active=quiz_data.get('is_active', True) if isinstance(quiz_data.get('is_active'), bool) else (str(quiz_data.get('is_active', 'true')).lower() == 'true'),
                 created_by=current_user.id,
                 scope_type=scope_type,
@@ -861,7 +926,19 @@ async def bulk_upload_quizzes(
                 department=department,
                 section_id=section_id,
                 year=year,
-                expiry_date=expiry_date
+                expiry_date=expiry_date,
+                start_time=start_time,
+                end_time=end_time,
+                # Enhanced features
+                assigned_branches=assigned_branches,
+                assigned_sections=assigned_sections,
+                allow_negative_marking=quiz_data.get('allow_negative_marking', False) if isinstance(quiz_data.get('allow_negative_marking'), bool) else (str(quiz_data.get('allow_negative_marking', 'false')).lower() == 'true'),
+                shuffle_questions=quiz_data.get('shuffle_questions', False) if isinstance(quiz_data.get('shuffle_questions'), bool) else (str(quiz_data.get('shuffle_questions', 'false')).lower() == 'true'),
+                shuffle_options=quiz_data.get('shuffle_options', False) if isinstance(quiz_data.get('shuffle_options'), bool) else (str(quiz_data.get('shuffle_options', 'false')).lower() == 'true'),
+                status=quiz_data.get('status', 'draft') if quiz_data.get('status') in ['draft', 'published', 'archived'] else 'draft',
+                question_bank_ids=question_bank_ids,
+                use_random_questions=quiz_data.get('use_random_questions', False) if isinstance(quiz_data.get('use_random_questions'), bool) else (str(quiz_data.get('use_random_questions', 'false')).lower() == 'true'),
+                random_question_count=quiz_data.get('random_question_count') if quiz_data.get('random_question_count') else None,
             )
             db.add(quiz)
             db.flush()
@@ -1481,7 +1558,14 @@ async def download_quiz_template(
     format: str = "xlsx",  # xlsx, csv, or json
     current_user_tuple = Depends(get_current_content_creator)
 ):
-    """Download template for quiz bulk upload in Excel, CSV, or JSON format"""
+    """Download template for quiz bulk upload in Excel, CSV, or JSON format
+    
+    Template includes all enhanced quiz features:
+    - Bulk assignment (assigned_branches, assigned_sections)
+    - Question Bank integration
+    - Negative marking, shuffle options
+    - Timer and passing marks
+    """
     from fastapi.responses import Response
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
@@ -1494,11 +1578,36 @@ async def download_quiz_template(
                 "subject": "Computer Science",
                 "duration_minutes": 30,
                 "total_marks": 100,
-                "scope_type": "section",
-                "section_id": 1,
-                "year": "1st",
+                "passing_marks": 50,
+                "start_time": "2024-01-01T09:00:00",
+                "end_time": "2024-12-31T23:59:59",
                 "expiry_date": "2024-12-31T23:59:59",
-                "is_active": True
+                "allow_negative_marking": False,
+                "shuffle_questions": False,
+                "shuffle_options": False,
+                "status": "published",
+                "assigned_branches": "1,2",
+                "assigned_sections": "1,2,3",
+                "question_bank_ids": "1,2,3",
+                "use_random_questions": False,
+                "random_question_count": 10,
+                "scope_type": "college",
+                "section_id": None,
+                "year": "1st",
+                "is_active": True,
+                "questions": [
+                    {
+                        "question": "What is 2+2?",
+                        "question_type": "mcq",
+                        "option_a": "3",
+                        "option_b": "4",
+                        "option_c": "5",
+                        "option_d": "6",
+                        "correct_answer": "B",
+                        "marks": 1,
+                        "negative_marking": 0.25
+                    }
+                ]
             }
         ]
         return Response(
@@ -1509,8 +1618,9 @@ async def download_quiz_template(
             }
         )
     elif format == "csv":
-        csv_content = "title,description,subject,duration_minutes,total_marks,scope_type,section_id,year,expiry_date,is_active\n"
-        csv_content += "Sample Quiz,Quiz description,Computer Science,30,100,section,1,1st,2024-12-31T23:59:59,true\n"
+        # CSV format with all enhanced features
+        csv_content = "title,description,subject,duration_minutes,total_marks,passing_marks,start_time,end_time,expiry_date,allow_negative_marking,shuffle_questions,shuffle_options,status,assigned_branches,assigned_sections,question_bank_ids,use_random_questions,random_question_count,scope_type,section_id,year,is_active\n"
+        csv_content += "Sample Quiz,Quiz description,Computer Science,30,100,50,2024-01-01T09:00:00,2024-12-31T23:59:59,2024-12-31T23:59:59,false,false,false,published,1,2,1,2,3,false,10,college,,1st,true\n"
         return Response(
             content=csv_content,
             media_type="text/csv",
@@ -1523,8 +1633,13 @@ async def download_quiz_template(
         ws = wb.active
         ws.title = "Quiz Template"
         
-        # Headers
-        headers = ["title", "description", "subject", "duration_minutes", "total_marks", "scope_type", "section_id", "year", "expiry_date", "is_active"]
+        # Headers with all enhanced features
+        headers = [
+            "title", "description", "subject", "duration_minutes", "total_marks", "passing_marks",
+            "start_time", "end_time", "expiry_date", "allow_negative_marking", "shuffle_questions",
+            "shuffle_options", "status", "assigned_branches", "assigned_sections", "question_bank_ids",
+            "use_random_questions", "random_question_count", "scope_type", "section_id", "year", "is_active"
+        ]
         header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF")
         
@@ -1533,10 +1648,24 @@ async def download_quiz_template(
             cell.fill = header_fill
             cell.font = header_font
         
-        # Sample row
-        sample_data = ["Sample Quiz", "Quiz description", "Computer Science", 30, 100, "section", 1, "1st", "2024-12-31T23:59:59", True]
-        for col_idx, value in enumerate(sample_data, 1):
+        # Sample rows
+        sample_data_1 = [
+            "Sample Quiz 1", "Quiz description", "Computer Science", 30, 100, 50,
+            "2024-01-01T09:00:00", "2024-12-31T23:59:59", "2024-12-31T23:59:59",
+            False, False, False, "published", "1,2", "1,2,3", "1,2,3", False, 10,
+            "college", None, "1st", True
+        ]
+        for col_idx, value in enumerate(sample_data_1, 1):
             ws.cell(row=2, column=col_idx, value=value)
+        
+        sample_data_2 = [
+            "Sample Quiz 2", "Another quiz", "Mathematics", 45, 50, 25,
+            "", "", "2024-12-31T23:59:59",
+            True, True, True, "draft", "", "", "", True, 5,
+            "section", 1, "2nd", True
+        ]
+        for col_idx, value in enumerate(sample_data_2, 1):
+            ws.cell(row=3, column=col_idx, value=value)
         
         # Auto-adjust column widths
         for column in ws.columns:
@@ -3787,10 +3916,19 @@ async def bulk_upload_questions(
             marks = int(row_dict.get('marks', 1)) if row_dict.get('marks') else 1
             timer_seconds = int(row_dict.get('timer_seconds')) if row_dict.get('timer_seconds') else None
             
+            # Parse negative_marking
+            negative_marking = 0.0
+            if row_dict.get('negative_marking'):
+                try:
+                    negative_marking = float(row_dict.get('negative_marking'))
+                except:
+                    negative_marking = 0.0
+            
             question_obj = {
                 "question": question_text,
                 "question_type": question_type,
                 "marks": marks,
+                "negative_marking": negative_marking,
             }
             
             if timer_seconds:
@@ -3883,6 +4021,7 @@ async def download_question_template(
                 "option_d": "5",
                 "correct_answer": "C",
                 "marks": 1,
+                "negative_marking": 0.25,
                 "timer_seconds": 60
             },
             {
@@ -3890,6 +4029,7 @@ async def download_question_template(
                 "question_type": "fill_blank",
                 "correct_answer_text": "Paris",
                 "marks": 1,
+                "negative_marking": 0,
                 "timer_seconds": 30
             },
             {
@@ -3897,6 +4037,7 @@ async def download_question_template(
                 "question_type": "true_false",
                 "is_true": True,
                 "marks": 1,
+                "negative_marking": 0.25,
                 "timer_seconds": 20
             },
         ]
@@ -3908,10 +4049,10 @@ async def download_question_template(
             }
         )
     elif format == "csv":
-        csv_content = "question,question_type,option_a,option_b,option_c,option_d,correct_answer,correct_answer_text,is_true,marks,timer_seconds\n"
-        csv_content += "What is 2+2?,mcq,2,3,4,5,C,,,1,60\n"
-        csv_content += "The capital of France is ____,fill_blank,,,,,Paris,,1,30\n"
-        csv_content += "Python is a programming language,true_false,True,False,,,A,,True,1,20\n"
+        csv_content = "question,question_type,option_a,option_b,option_c,option_d,correct_answer,correct_answer_text,is_true,marks,negative_marking,timer_seconds\n"
+        csv_content += "What is 2+2?,mcq,2,3,4,5,C,,,1,0.25,60\n"
+        csv_content += "The capital of France is ____,fill_blank,,,,,Paris,,1,0,30\n"
+        csv_content += "Python is a programming language,true_false,True,False,,,A,,True,1,0.25,20\n"
         return Response(
             content=csv_content,
             media_type="text/csv",
@@ -3924,8 +4065,8 @@ async def download_question_template(
         ws = wb.active
         ws.title = "Question Template"
         
-        # Headers
-        headers = ["question", "question_type", "option_a", "option_b", "option_c", "option_d", "correct_answer", "correct_answer_text", "is_true", "marks", "timer_seconds"]
+        # Headers with negative_marking
+        headers = ["question", "question_type", "option_a", "option_b", "option_c", "option_d", "correct_answer", "correct_answer_text", "is_true", "marks", "negative_marking", "timer_seconds"]
         header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF")
         
@@ -3936,9 +4077,9 @@ async def download_question_template(
         
         # Sample rows for different question types
         sample_rows = [
-            ["What is 2+2?", "mcq", "2", "3", "4", "5", "C", "", "", 1, 60],
-            ["The capital of France is ____", "fill_blank", "", "", "", "", "", "Paris", "", 1, 30],
-            ["Python is a programming language", "true_false", "True", "False", "", "", "A", "", "True", 1, 20]
+            ["What is 2+2?", "mcq", "2", "3", "4", "5", "C", "", "", 1, 0.25, 60],
+            ["The capital of France is ____", "fill_blank", "", "", "", "", "", "Paris", "", 1, 0, 30],
+            ["Python is a programming language", "true_false", "True", "False", "", "", "A", "", "True", 1, 0.25, 20]
         ]
         
         for row_idx, row_data in enumerate(sample_rows, start=2):

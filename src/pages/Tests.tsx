@@ -55,18 +55,35 @@ export default function Tests() {
       // Transform quizzes to tests format
       const now = new Date();
       const transformQuiz = (quiz: any, type: string) => {
-        let status: "Upcoming" | "Ongoing" | "Completed" = "Upcoming";
-        if (quiz.start_time && quiz.end_time) {
+        let status: "Upcoming" | "Ongoing" | "Completed" = "Ongoing"; // Default to Ongoing if no time restrictions
+        if (quiz.start_time) {
           const startTime = new Date(quiz.start_time);
-          const endTime = new Date(quiz.end_time);
           if (now < startTime) {
             status = "Upcoming";
-          } else if (now >= startTime && now <= endTime) {
+          } else {
+            // Quiz has started
+            if (quiz.end_time) {
+              const endTime = new Date(quiz.end_time);
+              if (now <= endTime) {
+                status = "Ongoing";
+              } else {
+                status = "Completed";
+              }
+            } else {
+              // No end time, so it's ongoing
+              status = "Ongoing";
+            }
+          }
+        } else if (quiz.end_time) {
+          // Has end time but no start time
+          const endTime = new Date(quiz.end_time);
+          if (now <= endTime) {
             status = "Ongoing";
           } else {
             status = "Completed";
           }
         }
+        // If no start_time and no end_time, status remains "Ongoing"
         
         return {
           id: quiz.id,

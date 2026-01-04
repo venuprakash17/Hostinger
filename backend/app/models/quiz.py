@@ -37,6 +37,18 @@ class Quiz(Base):
     # NOTE: per_question_timer_enabled column removed - database doesn't have it
     # per_question_timer_enabled = Column(Boolean, default=False, nullable=False)  # REMOVED
     
+    # Enhanced Quiz Features
+    assigned_branches = Column(JSON, nullable=True)  # Array of department/branch IDs for bulk assignment
+    assigned_sections = Column(JSON, nullable=True)  # Array of section IDs for bulk assignment
+    allow_negative_marking = Column(Boolean, default=False, nullable=False)  # Enable negative marking
+    shuffle_questions = Column(Boolean, default=False, nullable=False)  # Randomize question order
+    shuffle_options = Column(Boolean, default=False, nullable=False)  # Randomize option order
+    status = Column(String(20), default="draft", nullable=False)  # "draft", "published", "archived"
+    passing_marks = Column(Integer, nullable=True)  # Minimum marks to pass
+    question_bank_ids = Column(JSON, nullable=True)  # Array of question bank IDs to use
+    use_random_questions = Column(Boolean, default=False, nullable=False)  # Use random questions from bank
+    random_question_count = Column(Integer, nullable=True)  # Number of random questions to select
+    
     # Relationships
     attempts = relationship("QuizAttempt", back_populates="quiz", cascade="all, delete-orphan")
 

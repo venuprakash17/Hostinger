@@ -12,12 +12,13 @@ class QuestionSchema(BaseModel):
     option_b: Optional[str] = None
     option_c: Optional[str] = None
     option_d: Optional[str] = None
-    correct_answer: Optional[str] = Field(None, pattern="^[ABCD]$")  # For MCQ and True/False
+    correct_answer: Optional[str] = Field(None, pattern="^[ABCD]$")  # For MCQ: A, B, C, D | For True/False: "True" or "False"
     # Fill in the blank / Short answer fields
     correct_answer_text: Optional[str] = None  # For fill_blank
     # True/False fields
-    is_true: Optional[bool] = None  # For true_false type
+    is_true: Optional[bool] = None  # For true_false type (True/False)
     marks: int = 1
+    negative_marking: Optional[float] = Field(default=0.0, ge=0.0)  # Negative marking for wrong answer
     timer_seconds: Optional[int] = None  # Timer for this specific question (in seconds)
 
 
@@ -42,6 +43,18 @@ class QuizBase(BaseModel):
     code_snippet: Optional[str] = None
     question_timers: Optional[Dict[str, int]] = None  # {"0": 60, "1": 90} - question index to seconds
     per_question_timer_enabled: bool = False
+    
+    # Enhanced Quiz Features
+    assigned_branches: Optional[List[int]] = None  # Array of department/branch IDs
+    assigned_sections: Optional[List[int]] = None  # Array of section IDs
+    allow_negative_marking: bool = False
+    shuffle_questions: bool = False
+    shuffle_options: bool = False
+    status: str = Field(default="draft", pattern="^(draft|published|archived)$")
+    passing_marks: Optional[int] = None
+    question_bank_ids: Optional[List[int]] = None  # Array of question bank IDs to use
+    use_random_questions: bool = False  # Use random questions from bank
+    random_question_count: Optional[int] = None  # Number of random questions
 
 
 class QuizCreate(QuizBase):
@@ -68,6 +81,18 @@ class QuizUpdate(BaseModel):
     code_snippet: Optional[str] = None
     question_timers: Optional[Dict[str, int]] = None
     per_question_timer_enabled: Optional[bool] = None
+    
+    # Enhanced Quiz Features
+    assigned_branches: Optional[List[int]] = None
+    assigned_sections: Optional[List[int]] = None
+    allow_negative_marking: Optional[bool] = None
+    shuffle_questions: Optional[bool] = None
+    shuffle_options: Optional[bool] = None
+    status: Optional[str] = Field(None, pattern="^(draft|published|archived)$")
+    passing_marks: Optional[int] = None
+    question_bank_ids: Optional[List[int]] = None
+    use_random_questions: Optional[bool] = None
+    random_question_count: Optional[int] = None
 
 
 class QuizResponse(QuizBase):

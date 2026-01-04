@@ -10,13 +10,15 @@ import { ResumePreviewDialog } from "./ResumePreviewDialog";
 import { ResumePreviewModal } from "./ResumePreviewModal";
 import { SmartResumeAnalysisModal } from "./SmartResumeAnalysisModal";
 import { ProjectSuggestionModal } from "./ProjectSuggestionModal";
+// Removed ResumeBuilderModeSelector - only AI-powered mode supported
 import { useStudentProfile } from "@/hooks/useStudentProfile";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, FileText, Lightbulb, Download, Sparkles, Briefcase } from "lucide-react";
+import { Loader2, FileText, Lightbulb, Download, Sparkles, Briefcase, CheckCircle2, TrendingUp, AlertCircle } from "lucide-react";
 import { ResumeSuggestionsPanel } from "./ResumeSuggestionsPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect, useMemo, useCallback, memo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -45,6 +47,7 @@ export const BuildTab = memo(function BuildTab() {
   const [jobDescription, setJobDescription] = useState('');
   const [showSmartAnalysis, setShowSmartAnalysis] = useState(false);
   const [showProjectSuggestions, setShowProjectSuggestions] = useState(false);
+  // Removed mode selector - only AI-powered mode
   
   const {
     profile,
@@ -496,10 +499,11 @@ export const BuildTab = memo(function BuildTab() {
 
   // Handle proceeding to preview after analysis
   const handleProceedToPreview = useCallback(() => {
+    // Directly show preview for AI-powered mode
     setShowPreview(true);
   }, []);
 
-  // Define handleGenerateResume - shows smart analysis first, then preview
+  // Define handleGenerateResume - directly opens AI-powered analysis
   const handleGenerateResume = useCallback(() => {
     if (!targetRole.trim()) {
       toast({
@@ -509,7 +513,7 @@ export const BuildTab = memo(function BuildTab() {
       });
       return;
     }
-
+      
     if (!profile || !profile.full_name || !profile.email || !profile.phone_number) {
       toast({
         title: "Personal Information Required",
@@ -528,7 +532,7 @@ export const BuildTab = memo(function BuildTab() {
       return;
     }
 
-    // Show smart analysis modal first
+    // Directly show smart analysis modal for AI-powered mode
     setShowSmartAnalysis(true);
   }, [profile, allEducation.length, targetRole, toast]);
 
@@ -542,16 +546,28 @@ export const BuildTab = memo(function BuildTab() {
 
   return (
     <div className="space-y-6">
-      {/* Job Application Details - FIRST SECTION (Above Personal Info) */}
-      <Card className="bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Briefcase className="h-5 w-5 text-primary" />
-            Job Application Details
-          </CardTitle>
-          <CardDescription>
-            Enter the job details you're applying for. Our smart system will optimize your resume accordingly.
-          </CardDescription>
+      {/* Job Application Details - FIRST SECTION (Above Personal Info) - Enhanced */}
+      <Card className="bg-gradient-to-br from-primary/10 via-primary/5 to-background border-2 border-primary/30 shadow-lg hover:shadow-xl transition-all duration-300">
+        <CardHeader className="pb-4">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-gradient-to-br from-primary/20 to-primary/10 rounded-xl shadow-md">
+                <Briefcase className="h-6 w-6 text-primary" />
+              </div>
+              <div>
+                <CardTitle className="text-2xl font-bold flex items-center gap-2">
+                  Job Application Details
+                  <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
+                    <Sparkles className="h-3 w-3 mr-1" />
+                    AI Optimization
+                  </Badge>
+                </CardTitle>
+                <CardDescription className="mt-1.5 text-base">
+                  Enter the job details you're applying for. Our smart system will optimize your resume accordingly.
+                </CardDescription>
+              </div>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -594,22 +610,66 @@ export const BuildTab = memo(function BuildTab() {
         </CardContent>
       </Card>
 
-      {/* Completeness Card */}
-      <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
+      {/* Completeness Card - Enhanced */}
+      <Card className={`border-2 shadow-lg transition-all duration-300 ${
+        completeness === 100 
+          ? 'bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/20 dark:to-emerald-950/20 border-green-300 dark:border-green-800' 
+          : 'bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-300 dark:border-blue-800'
+      }`}>
         <CardContent className="pt-6">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <FileText className="w-5 h-5 text-primary" />
-              <h3 className="font-semibold">Profile Completeness</h3>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className={`p-3 rounded-xl shadow-md ${
+                completeness === 100 
+                  ? 'bg-gradient-to-br from-green-500/20 to-emerald-500/20' 
+                  : 'bg-gradient-to-br from-blue-500/20 to-indigo-500/20'
+              }`}>
+                {completeness === 100 ? (
+                  <CheckCircle2 className="w-6 h-6 text-green-600 dark:text-green-400" />
+                ) : (
+                  <FileText className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                )}
+              </div>
+              <div>
+                <h3 className="font-bold text-lg">Profile Completeness</h3>
+                <p className="text-sm text-muted-foreground">
+                  {completeness === 100
+                    ? "All required sections completed!"
+                    : `${100 - completeness}% remaining to complete`}
+                </p>
+              </div>
             </div>
-            <span className="text-2xl font-bold text-primary">{completeness}%</span>
+            <div className="text-right">
+              <span className={`text-4xl font-bold ${
+                completeness === 100 
+                  ? 'text-green-600 dark:text-green-400' 
+                  : 'text-blue-600 dark:text-blue-400'
+              }`}>
+                {completeness}%
+              </span>
+            </div>
           </div>
-          <Progress value={completeness} className="h-2" />
-          <p className="text-sm text-muted-foreground mt-2">
-            {completeness === 100
-              ? "Your profile is complete! You can now generate your resume."
-              : "Complete all sections to unlock resume generation features."}
-          </p>
+          <Progress 
+            value={completeness} 
+            className={`h-3 ${completeness === 100 ? 'bg-green-200 dark:bg-green-900' : ''}`}
+          />
+          <div className="mt-4 flex items-center gap-2">
+            {completeness === 100 ? (
+              <>
+                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                <p className="text-sm font-medium text-green-700 dark:text-green-300">
+                  Your profile is complete! You can now generate your resume.
+                </p>
+              </>
+            ) : (
+              <>
+                <TrendingUp className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                <p className="text-sm text-muted-foreground">
+                  Complete all sections to unlock resume generation features.
+                </p>
+              </>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -639,22 +699,73 @@ export const BuildTab = memo(function BuildTab() {
       {/* Template selection moved to preview modal */}
 
 
-      {/* Instructions Alert */}
-      <Alert>
-        <AlertDescription>
-          <strong className="block mb-2">📋 Resume Building Steps:</strong>
-          <ol className="list-decimal list-inside space-y-1 text-sm">
-            <li>Enter <strong>Job Application Details</strong> above (Company, Role, JD)</li>
-            <li>Fill in your <strong>Personal Information</strong> and <strong>Education</strong> (Required)</li>
-            <li>Add <strong>Projects, Skills, Certifications</strong> to strengthen your resume (Recommended)</li>
-            <li>Click <strong>"Build & Optimize Resume"</strong> button below</li>
-            <li>Our smart system will analyze and suggest missing sections</li>
-            <li>Add suggested sections, then proceed to preview and download</li>
-          </ol>
+      {/* Instructions Alert - Enhanced */}
+      <Alert className="border-blue-200 bg-gradient-to-r from-blue-50/50 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/20 shadow-sm">
+        <Lightbulb className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+        <AlertDescription className="space-y-3">
+          <div>
+            <strong className="block mb-3 text-base text-blue-900 dark:text-blue-100">📋 Quick Start Guide:</strong>
+            <div className="grid md:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <div className="flex items-start gap-2">
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center text-xs font-bold">
+                    1
+                  </div>
+                  <div className="text-sm">
+                    Enter <strong>Job Application Details</strong> above (Company, Role, JD)
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center text-xs font-bold">
+                    2
+                  </div>
+                  <div className="text-sm">
+                    Fill in your <strong>Personal Information</strong> and <strong>Education</strong> (Required)
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center text-xs font-bold">
+                    3
+                  </div>
+                  <div className="text-sm">
+                    Add <strong>Projects, Skills, Certifications</strong> to strengthen your resume
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-start gap-2">
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center text-xs font-bold">
+                    4
+                  </div>
+                  <div className="text-sm">
+                    Click <strong>"Build & Optimize Resume"</strong> button below
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center text-xs font-bold">
+                    5
+                  </div>
+                  <div className="text-sm">
+                    Our AI will analyze and suggest improvements
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center text-xs font-bold">
+                    6
+                  </div>
+                  <div className="text-sm">
+                    Preview, customize, and download your professional resume
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
           {completeness < 100 && (
-            <strong className="block mt-2 text-primary">
-              Complete required sections ({completeness}% done) to unlock the "Build & Optimize Resume" button.
+            <div className="pt-2 border-t border-blue-200 dark:border-blue-800">
+              <strong className="block text-sm text-blue-800 dark:text-blue-200">
+                ⚡ Complete required sections ({completeness}% done) to unlock the "Build & Optimize Resume" button.
             </strong>
+            </div>
           )}
         </AlertDescription>
       </Alert>
@@ -671,36 +782,36 @@ export const BuildTab = memo(function BuildTab() {
 
       {/* Personal Information */}
       <div id="personal-info-section">
-        <PersonalInfoForm
-          initialData={profile || undefined}
-          onSave={(data) => saveProfile.mutate(data)}
-          isSaving={saveProfile.isPending}
-        />
+      <PersonalInfoForm
+        initialData={profile || undefined}
+        onSave={(data) => saveProfile.mutate(data)}
+        isSaving={saveProfile.isPending}
+      />
       </div>
 
       {/* Education */}
       <div id="education-section">
-        <EducationForm education={allEducation} />
+      <EducationForm education={allEducation} />
       </div>
 
       {/* Projects */}
       <div id="projects-section">
-        <ProjectsForm projects={allProjects} />
+      <ProjectsForm projects={allProjects} />
       </div>
 
       {/* Skills */}
       <div id="skills-section">
-        <SkillsForm skills={allSkills} />
+      <SkillsForm skills={allSkills} />
       </div>
 
       {/* Certifications */}
       <div id="certifications-section">
-        <CertificationsForm certifications={certifications} />
+      <CertificationsForm certifications={certifications} />
       </div>
 
       {/* Achievements */}
       <div id="achievements-section">
-        <AchievementsForm achievements={achievements} />
+      <AchievementsForm achievements={achievements} />
       </div>
 
       {/* Extracurricular */}
@@ -709,31 +820,76 @@ export const BuildTab = memo(function BuildTab() {
       {/* Hobbies */}
       <HobbiesForm hobbies={hobbies} />
 
-      {/* Generate Resume Button */}
+      {/* Generate Resume Button - Stunning Design */}
       {completeness === 100 && (
-        <Card className="bg-gradient-to-r from-primary to-primary/80 text-white">
-          <CardContent className="pt-6">
-            <div className="text-center space-y-4">
-              <h3 className="text-xl font-semibold">Ready to Build Your Resume!</h3>
-              <p className="text-white/90">
+        <Card className="relative overflow-hidden bg-gradient-to-br from-primary via-primary/95 to-primary/90 text-white border-0 shadow-2xl">
+          <div className="absolute inset-0 bg-grid-white/[0.05] bg-[size:20px_20px] opacity-50" />
+          <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-32 -mt-32" />
+          <div className="absolute bottom-0 left-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -ml-32 -mb-32" />
+          
+          <CardContent className="pt-8 pb-8 relative z-10">
+            <div className="text-center space-y-6 max-w-2xl mx-auto">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <div className="p-2 bg-white/20 backdrop-blur-sm rounded-lg">
+                  <Sparkles className="h-6 w-6" />
+                </div>
+                <h3 className="text-2xl md:text-3xl font-bold">Ready to Build Your Resume!</h3>
+              </div>
+              
+              <p className="text-lg text-white/90 leading-relaxed">
                 {targetRole 
-                  ? `Click below to analyze and build your optimized resume for ${targetRole}${companyName ? ` at ${companyName}` : ''}.`
+                  ? (
+                    <>
+                      Click below to analyze and build your <strong>AI-optimized resume</strong> for{' '}
+                      <span className="font-semibold">{targetRole}</span>
+                      {companyName && <span> at <span className="font-semibold">{companyName}</span></span>}.
+                    </>
+                  )
                   : 'Enter job details above, then click below to build your optimized resume.'}
               </p>
+              
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
               <Button
                 size="lg"
                 variant="secondary"
-                className="w-full md:w-auto"
+                  className="w-full sm:w-auto min-w-[280px] h-14 text-base font-bold shadow-xl hover:shadow-2xl transition-all duration-300 bg-white text-primary hover:bg-white/95"
                 onClick={handleGenerateResume}
-                disabled={!targetRole.trim()}
+                  disabled={!targetRole.trim()}
               >
-                <FileText className="w-5 h-5 mr-2" />
-                {targetRole ? 'Build & Optimize Resume' : 'Enter Target Role First'}
+                  <FileText className="w-5 h-5 mr-2" />
+                  {targetRole ? (
+                  <>
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      Build & Optimize Resume
+                  </>
+                ) : (
+                    'Enter Target Role First'
+                )}
               </Button>
+              </div>
+              
               {!targetRole && (
-                <p className="text-xs text-white/70 mt-2">
-                  ⚠️ Please enter a target role in the "Job Application Details" section above
-                </p>
+                <div className="flex items-center justify-center gap-2 text-sm text-white/80 bg-white/10 backdrop-blur-sm rounded-lg p-3">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>Please enter a target role in the "Job Application Details" section above</span>
+                </div>
+              )}
+              
+              {targetRole && (
+                <div className="grid grid-cols-3 gap-4 pt-4 border-t border-white/20">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold">5+</div>
+                    <div className="text-xs text-white/80">Templates</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold">100%</div>
+                    <div className="text-xs text-white/80">ATS Safe</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold">AI</div>
+                    <div className="text-xs text-white/80">Optimized</div>
+                  </div>
+                </div>
               )}
             </div>
           </CardContent>
@@ -769,7 +925,7 @@ export const BuildTab = memo(function BuildTab() {
         />
       )}
 
-      {/* Resume Preview Modal - New popup with template selection and optimization */}
+      {/* Resume Preview Modal - AI-Powered mode only */}
       <ResumePreviewModal
         open={showPreview}
         onOpenChange={setShowPreview}
@@ -777,6 +933,7 @@ export const BuildTab = memo(function BuildTab() {
         targetRole={targetRole}
         companyName={companyName}
         jobDescription={jobDescription}
+        mode="ai-powered"
       />
 
       {/* Keep old dialog for backward compatibility if needed */}

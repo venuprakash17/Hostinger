@@ -15,11 +15,13 @@ class JobBase(BaseModel):
     eligibility_type: str = Field(default="all_students", pattern="^(all_students|branch|specific_students)$")
     eligible_branches: Optional[List[str]] = None
     eligible_user_ids: Optional[List[int]] = None
+    eligible_years: Optional[List[str]] = None  # e.g., ["1st", "2nd", "3rd", "4th"] - if provided, filters by year
     job_type: str = Field(default="On-Campus", pattern="^(On-Campus|Off-Campus|Internship)$")
     requirements: Optional[List[str]] = None
     rounds: Optional[List[str]] = None
     deadline: Optional[datetime] = None
     apply_link: Optional[str] = None  # External application URL
+    company_logo: Optional[str] = None  # URL or path to company logo
     is_active: bool = True
 
 
@@ -39,11 +41,13 @@ class JobUpdate(BaseModel):
     eligibility_type: Optional[str] = Field(None, pattern="^(all_students|branch|specific_students)$")
     eligible_branches: Optional[List[str]] = None
     eligible_user_ids: Optional[List[int]] = None
+    eligible_years: Optional[List[str]] = None  # e.g., ["1st", "2nd", "3rd", "4th"] - if provided, filters by year
     job_type: Optional[str] = Field(None, pattern="^(On-Campus|Off-Campus|Internship)$")
     requirements: Optional[List[str]] = None
     rounds: Optional[List[str]] = None
     deadline: Optional[datetime] = None
     apply_link: Optional[str] = None  # External application URL
+    company_logo: Optional[str] = None  # URL or path to company logo
     is_active: Optional[bool] = None
     college_id: Optional[int] = None  # For super admin to change college
 

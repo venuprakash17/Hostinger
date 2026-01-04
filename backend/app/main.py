@@ -16,8 +16,8 @@ from app.api.auth import get_current_user
 from app.models.user import User
 from app.config import get_settings
 from app.core.database import engine, Base
-from app.api import auth, jobs, users, colleges, institutions, global_content, bulk_upload, promotion, training_sessions, attendance, academic, resume, job_aggregation, mock_interviews, hall_tickets, notifications, announcements, coding_labs, proctoring, lab_management, intelligent_lab, coding_problems, analytics, migration, company_training, comprehensive_analytics, analytics_drilldown, resume_analytics
-from app.api import mock_interview_ai
+from app.api import auth, jobs, users, colleges, institutions, global_content, bulk_upload, promotion, training_sessions, attendance, academic, resume, mock_interviews, hall_tickets, notifications, announcements, coding_labs, proctoring, lab_management, intelligent_lab, coding_problems, analytics, migration, company_training, comprehensive_analytics, analytics_drilldown, resume_analytics, job_rounds, job_analytics, job_applications
+from app.api import mock_interview_ai, question_bank, quiz_analytics
 
 settings = get_settings()
 
@@ -213,6 +213,11 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 # Include routers
 app.include_router(auth.router, prefix=settings.API_V1_STR)
+# Register job_analytics BEFORE jobs router to avoid route conflict
+# /jobs/analytics must match before /jobs/{job_id}
+app.include_router(job_analytics.router, prefix=settings.API_V1_STR)
+app.include_router(job_rounds.router, prefix=settings.API_V1_STR)
+app.include_router(job_applications.router, prefix=settings.API_V1_STR)
 app.include_router(jobs.router, prefix=settings.API_V1_STR)
 app.include_router(users.router, prefix=settings.API_V1_STR)
 app.include_router(colleges.router, prefix=settings.API_V1_STR)
@@ -225,7 +230,6 @@ app.include_router(attendance.router, prefix=settings.API_V1_STR)
 app.include_router(academic.router, prefix=settings.API_V1_STR)
 app.include_router(migration.router, prefix=settings.API_V1_STR)
 app.include_router(resume.router, prefix=settings.API_V1_STR)
-app.include_router(job_aggregation.router, prefix=settings.API_V1_STR)
 app.include_router(mock_interviews.router, prefix=settings.API_V1_STR)
 app.include_router(mock_interview_ai.router, prefix=settings.API_V1_STR)
 app.include_router(hall_tickets.router, prefix=settings.API_V1_STR)
@@ -241,6 +245,9 @@ app.include_router(comprehensive_analytics.router, prefix=settings.API_V1_STR)
 app.include_router(analytics_drilldown.router, prefix=settings.API_V1_STR)
 app.include_router(company_training.router, prefix=settings.API_V1_STR)
 app.include_router(resume_analytics.router, prefix=settings.API_V1_STR)
+app.include_router(question_bank.router, prefix=settings.API_V1_STR)
+app.include_router(quiz_analytics.router, prefix=settings.API_V1_STR)
+# Note: job_analytics, job_rounds, and job_applications are registered above before jobs.router
 
 # WebSocket endpoint for coding labs monitoring
 @app.websocket("/ws/coding-labs/{lab_id}")

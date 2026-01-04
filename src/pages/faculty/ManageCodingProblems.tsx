@@ -68,8 +68,33 @@ export default function ManageCodingProblems() {
     try {
       const profile = await apiClient.getCurrentUserProfile();
       if (profile?.college_id) {
-        const data = await apiClient.getSections(profile.college_id);
-        setSections(data || []);
+        // For faculty, fetch sections from their department/branch only
+        const departmentId = profile.department_id || undefined;
+        
+        // Fetch sections - backend will filter by college, we'll filter by department on frontend
+        const data = await apiClient.getSections(profile.college_id, departmentId, undefined, false);
+        
+        // Filter sections by faculty's department if department is specified
+        let filteredSections = data || [];
+        if (profile.department && !departmentId) {
+          // Filter by department name if we don't have department_id
+          filteredSections = filteredSections.filter((section: any) => 
+            section.department_name === profile.department
+          );
+        }
+        
+        // Sort sections by year, then section name
+        const sortedSections = filteredSections.sort((a: any, b: any) => {
+          // First sort by year
+          const yearA = a.year || '';
+          const yearB = b.year || '';
+          if (yearA !== yearB) return yearA.localeCompare(yearB);
+          
+          // Then by section name
+          return (a.name || '').localeCompare(b.name || '');
+        });
+        
+        setSections(sortedSections);
       }
     } catch (error) {
       console.error("Error fetching sections:", error);

@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Building2, Plus, Edit, Trash2, Search } from "lucide-react";
+import { Building2, Plus, Edit, Trash2, Search, Upload } from "lucide-react";
 import { apiClient } from "@/integrations/api/client";
 import { 
   Table, 
@@ -336,16 +336,20 @@ export default function ManageDepartments() {
       </div>
 
       <Tabs defaultValue="view" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className={isSuperAdmin ? "grid w-full grid-cols-3" : "grid w-full grid-cols-1"}>
           <TabsTrigger value="view">View Branches</TabsTrigger>
-          <TabsTrigger value="create">
-            <Plus className="h-4 w-4 mr-2" />
-            Create Branch
-          </TabsTrigger>
-          <TabsTrigger value="bulk">
-            <Upload className="h-4 w-4 mr-2" />
-            Bulk Upload
-          </TabsTrigger>
+          {isSuperAdmin && (
+            <>
+              <TabsTrigger value="create">
+                <Plus className="h-4 w-4 mr-2" />
+                Create Branch
+              </TabsTrigger>
+              <TabsTrigger value="bulk">
+                <Upload className="h-4 w-4 mr-2" />
+                Bulk Upload
+              </TabsTrigger>
+            </>
+          )}
         </TabsList>
 
         <TabsContent value="view">
@@ -452,24 +456,26 @@ export default function ManageDepartments() {
                           <TableCell>{dept.vertical || "N/A"}</TableCell>
                           <TableCell>{typeof dept.number_of_years === "number" ? dept.number_of_years : "N/A"}</TableCell>
                           <TableCell className="text-right">
-                            <div className="flex justify-end gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleOpenEditDialog(dept)}
-                              >
-                                <Edit className="h-4 w-4 mr-2" />
-                                Edit
-                              </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => handleDeleteDepartment(dept.id)}
-                              >
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Delete
-                              </Button>
-                            </div>
+                            {isSuperAdmin && (
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleOpenEditDialog(dept)}
+                                >
+                                  <Edit className="h-4 w-4 mr-2" />
+                                  Edit
+                                </Button>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => handleDeleteDepartment(dept.id)}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Delete
+                                </Button>
+                              </div>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}

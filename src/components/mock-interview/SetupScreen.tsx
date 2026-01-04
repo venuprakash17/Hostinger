@@ -21,6 +21,7 @@ interface SetupScreenProps {
     companyName: string;
     jobDescription: string;
     experienceLevel: string;
+    interviewRound: string;
     resumeData: any;
   }) => void;
 }
@@ -30,6 +31,7 @@ export function SetupScreen({ onComplete }: SetupScreenProps) {
   const [companyName, setCompanyName] = useState('');
   const [jobDescription, setJobDescription] = useState('');
   const [experienceLevel, setExperienceLevel] = useState('fresher');
+  const [interviewRound, setInterviewRound] = useState('technical');
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
@@ -92,6 +94,7 @@ export function SetupScreen({ onComplete }: SetupScreenProps) {
           company_name: companyName || undefined,
           job_description: jobDescription || undefined,
           experience_level: experienceLevel,
+          interview_round: interviewRound,
           resume_data: resumeData,
         }),
       });
@@ -108,6 +111,7 @@ export function SetupScreen({ onComplete }: SetupScreenProps) {
         companyName,
         jobDescription,
         experienceLevel,
+        interviewRound,
         resumeData: { ...resumeData, firstQuestion },
       });
       
@@ -189,6 +193,23 @@ export function SetupScreen({ onComplete }: SetupScreenProps) {
                 <SelectItem value="5+ years">5+ years</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          <div>
+            <Label htmlFor="interviewRound">Interview Round *</Label>
+            <Select value={interviewRound} onValueChange={setInterviewRound}>
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="hr">HR Round</SelectItem>
+                <SelectItem value="technical">Technical Round</SelectItem>
+                <SelectItem value="managerial">Managerial Round</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-1">
+              Select the type of interview round. Questions will be tailored accordingly.
+            </p>
           </div>
 
           <div>

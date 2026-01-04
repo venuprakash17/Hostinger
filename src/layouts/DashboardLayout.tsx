@@ -31,7 +31,9 @@ import {
   Archive,
   RefreshCw,
   Upload,
-  Mic
+  Mic,
+  TrendingUp,
+  ArrowRight
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
@@ -51,6 +53,7 @@ import {
 const studentNavItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
   { icon: FileText, label: "Resume", path: "/resume" },
+  { icon: FileText, label: "Resume 2", path: "/resume-2" },
   { icon: Code2, label: "Coding Practice", path: "/coding-problems" },
   { icon: Code2, label: "Coding Labs", path: "/coding-labs" },
   { icon: ClipboardCheck, label: "Tests", path: "/tests" },
@@ -59,6 +62,7 @@ const studentNavItems = [
   { icon: Building2, label: "Company Training", path: "/company-training" },
   { icon: Briefcase, label: "Jobs & Placement", path: "/jobs" },
   { icon: ListChecks, label: "Application Tracker", path: "/applications" },
+  { icon: TrendingUp, label: "Placement Progress", path: "/placement-progress" },
   { icon: Mic, label: "Mock Interview (AI)", path: "/mock-interview" },
   { icon: MessageSquare, label: "Mock Interviews", path: "/mock-interviews" },
   { icon: Ticket, label: "Hall Tickets", path: "/hall-tickets" },
@@ -85,8 +89,6 @@ const hodNavItems = [
   { icon: User, label: "Manage Users", path: "/admin/users" },
   { icon: GraduationCap, label: "Manage Staff", path: "/admin/staff" },
   { icon: BookOpen, label: "Subjects", path: "/admin/subjects" },
-  { icon: School, label: "Sections", path: "/admin/sections" },
-  { icon: Upload, label: "Bulk Upload Structure", path: "/admin/bulk-upload-academic-structure" },
   { icon: FileQuestion, label: "Manage Quizzes", path: "/faculty/quizzes" },
   { icon: Code2, label: "Coding Labs", path: "/coding-labs" },
   { icon: Code2, label: "Manage Coding Problems", path: "/faculty/coding-problems" },
@@ -105,13 +107,10 @@ const adminNavItems = [
   { icon: BookOpen, label: "Subjects", path: "/admin/subjects" },
   // Attendance hidden but settings kept
   // { icon: UserCheck, label: "Manage Attendance", path: "/attendance-analytics" },
-  { icon: Briefcase, label: "Jobs & Placement", path: "/admin/jobs" },
-  { icon: RefreshCw, label: "Job Aggregation", path: "/admin/job-aggregation" },
+  { icon: Briefcase, label: "Jobs & Placement", path: "/admin/jobs-unified" },
   { icon: MessageSquare, label: "Mock Interviews", path: "/admin/mock-interviews" },
   { icon: Bell, label: "Notifications", path: "/admin/notifications" },
-  { icon: School, label: "Sections & Faculty", path: "/admin/sections" },
-  { icon: Upload, label: "Bulk Upload Structure", path: "/admin/bulk-upload-academic-structure" },
-  { icon: FileQuestion, label: "Manage Quizzes", path: "/faculty/quizzes" },
+  { icon: FileQuestion, label: "Manage Quizzes", path: "/admin/quizzes" },
   { icon: Code2, label: "Coding Labs", path: "/coding-labs" },
   { icon: Code2, label: "Manage Coding Problems", path: "/faculty/coding-problems" },
   { icon: BarChart3, label: "Analytics", path: "/analytics" },
@@ -126,8 +125,6 @@ const superAdminNavItems = [
   { icon: FileQuestion, label: "Global Content", path: "/superadmin/global-content" },
   { icon: Target, label: "Company Training", path: "/superadmin/company-training" },
   { icon: Briefcase, label: "Manage Jobs", path: "/superadmin/jobs" },
-  { icon: ArrowUp, label: "Year Promotion", path: "/superadmin/promotions" },
-  { icon: Archive, label: "Academic Year Migration", path: "/superadmin/academic-year-migration" },
   { icon: Bell, label: "Notifications", path: "/admin/notifications" },
   { icon: Bell, label: "Announcements", path: "/superadmin/announcements" },
   { icon: Code2, label: "Coding Labs", path: "/coding-labs" },

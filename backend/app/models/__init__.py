@@ -6,8 +6,10 @@ from app.models.institution import Institution
 from app.models.notification import Notification
 from app.models.user_notification import UserNotification
 from app.models.job import Job, JobApplication
+from app.models.job_round import JobRound, JobApplicationRound
 from app.models.audit_log import AuditLog
 from app.models.quiz import Quiz, CodingProblem, QuizAttempt
+from app.models.question_bank import QuestionBank
 from app.models.coding_submission import CodingSubmission
 from app.models.user_saved_code import UserSavedCode
 from app.models.training_session import TrainingSession
@@ -25,7 +27,6 @@ from app.models.academic import (
     ArchivedSubjectAssignment,
     ArchivedFacultySectionAssignment
 )
-from app.models.job_aggregation import JobAggregation
 from app.models.mock_interview import MockInterview
 from app.models.year_promotion import YearPromotion
 from app.models.hall_ticket import HallTicket
@@ -92,10 +93,13 @@ __all__ = [
     "UserNotification",
     "Job",
     "JobApplication",
+    "JobRound",
+    "JobApplicationRound",
     "AuditLog",
     "Quiz",
     "CodingProblem",
     "QuizAttempt",
+    "QuestionBank",
     "UserSavedCode",
     "CodingSubmission",
     "TrainingSession",
@@ -111,7 +115,6 @@ __all__ = [
     "AcademicYearMigration",
     "ArchivedSubjectAssignment",
     "ArchivedFacultySectionAssignment",
-    "JobAggregation",
     "MockInterview",
     "YearPromotion",
     "HallTicket",

@@ -35,20 +35,26 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/integrations/api/client";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface Job {
   id: number;
-  company_name: string;
+  company: string;
+  company_name?: string; // For backward compatibility
   role: string;
+  title?: string;
   description: string;
   location: string | null;
   ctc: string | null;
   eligibility_type: string;
   eligible_branches: string[] | null;
   eligible_user_ids: number[] | null;
+  eligible_years: string[] | null;
   requirements: string[];
-  selection_rounds: string[];
+  rounds?: string[]; // Backend uses 'rounds'
+  selection_rounds?: string[]; // Legacy support
   deadline: string;
+  company_logo?: string | null; // Company logo URL
   is_active: boolean;
   college_id: number;
   created_at: string;
@@ -69,6 +75,12 @@ interface JobApplication {
   };
 }
 
+interface Department {
+  id: number;
+  name: string;
+  code: string | null;
+}
+
 export default function ManageJobs() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,6 +89,8 @@ export default function ManageJobs() {
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [applications, setApplications] = useState<JobApplication[]>([]);
   const [activeTab, setActiveTab] = useState("all");
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [departmentsLoading, setDepartmentsLoading] = useState(true);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -85,9 +99,11 @@ export default function ManageJobs() {
     description: "",
     location: "",
     ctc: "",
+    company_logo: "",
     eligibility_type: "all_students" as "all_students" | "branch" | "specific_students",
     eligible_branches: [] as string[],
     eligible_user_ids: [] as number[],
+    eligible_years: [] as string[],
     requirements: [] as string[],
     selection_rounds: [] as string[],
     deadline: "",
@@ -97,11 +113,26 @@ export default function ManageJobs() {
   const [tempRequirement, setTempRequirement] = useState("");
   const [tempRound, setTempRound] = useState("");
   const [tempBranch, setTempBranch] = useState("");
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>("");
   const [tempUserId, setTempUserId] = useState("");
 
   useEffect(() => {
     fetchJobs();
+    fetchDepartments();
   }, []);
+
+  const fetchDepartments = async () => {
+    try {
+      setDepartmentsLoading(true);
+      const depts = await apiClient.getDepartments();
+      setDepartments(depts || []);
+    } catch (error: any) {
+      console.error('Error fetching departments:', error);
+      toast.error('Failed to load departments');
+    } finally {
+      setDepartmentsLoading(false);
+    }
+  };
 
   const fetchJobs = async () => {
     try {
@@ -129,16 +160,18 @@ export default function ManageJobs() {
   const handleOpenDialog = (job?: Job) => {
     if (job) {
       setFormData({
-        company_name: job.company_name,
+        company_name: job.company || job.company_name || "",
         role: job.role,
         description: job.description || "",
         location: job.location || "",
         ctc: job.ctc || "",
+        company_logo: job.company_logo || "",
         eligibility_type: job.eligibility_type as "all_students" | "branch" | "specific_students",
         eligible_branches: job.eligible_branches || [],
         eligible_user_ids: job.eligible_user_ids || [],
+        eligible_years: job.eligible_years || [],
         requirements: job.requirements || [],
-        selection_rounds: job.selection_rounds || [],
+        selection_rounds: job.rounds || job.selection_rounds || [],
         deadline: job.deadline ? new Date(job.deadline).toISOString().split('T')[0] : "",
         is_active: job.is_active,
       });
@@ -154,6 +187,8 @@ export default function ManageJobs() {
         eligibility_type: "all_students",
         eligible_branches: [],
         eligible_user_ids: [],
+        eligible_years: [],
+        company_logo: "",
         requirements: [],
         selection_rounds: [],
         deadline: "",
@@ -194,18 +229,21 @@ export default function ManageJobs() {
 
     try {
       const jobPayload = {
-        company_name: formData.company_name,
+        title: formData.role, // Backend expects 'title'
+        company: formData.company_name, // Backend uses 'company'
         role: formData.role,
         description: formData.description,
         location: formData.location || null,
         ctc: formData.ctc || null,
+        company_logo: formData.company_logo || null,
         deadline: new Date(formData.deadline).toISOString(),
         requirements: formData.requirements.filter(r => r.trim() !== ""),
-        selection_rounds: formData.selection_rounds.filter(r => r.trim() !== ""),
+        rounds: formData.selection_rounds.filter(r => r.trim() !== ""), // Backend uses 'rounds'
         is_active: formData.is_active,
         eligibility_type: formData.eligibility_type,
         eligible_branches: formData.eligibility_type === "branch" ? formData.eligible_branches : null,
         eligible_user_ids: formData.eligibility_type === "specific_students" ? formData.eligible_user_ids : null,
+        eligible_years: formData.eligible_years.length > 0 ? formData.eligible_years : null,
       };
 
       if (selectedJob) {
@@ -295,7 +333,20 @@ export default function ManageJobs() {
   };
 
   const addBranch = () => {
-    if (tempBranch.trim() && !formData.eligible_branches.includes(tempBranch.trim())) {
+    if (selectedDepartmentId) {
+      const dept = departments.find(d => d.id.toString() === selectedDepartmentId);
+      if (dept) {
+        const branchName = dept.name;
+        if (!formData.eligible_branches.includes(branchName)) {
+          setFormData({
+            ...formData,
+            eligible_branches: [...formData.eligible_branches, branchName],
+          });
+          setSelectedDepartmentId("");
+        }
+      }
+    } else if (tempBranch.trim() && !formData.eligible_branches.includes(tempBranch.trim())) {
+      // Fallback to manual entry if no department selected
       setFormData({
         ...formData,
         eligible_branches: [...formData.eligible_branches, tempBranch.trim()],
@@ -384,11 +435,11 @@ export default function ManageJobs() {
                             {job.is_active ? "Active" : "Inactive"}
                           </Badge>
                         </div>
-                        <CardDescription className="text-base">
+                        <div className="text-base text-muted-foreground">
                           <div className="flex items-center gap-4 mt-2">
                             <span className="flex items-center gap-1">
                               <Building2 className="h-4 w-4" />
-                              {job.company_name}
+                              {job.company || job.company_name}
                             </span>
                             {job.location && (
                               <span className="flex items-center gap-1">
@@ -397,13 +448,18 @@ export default function ManageJobs() {
                               </span>
                             )}
                           </div>
-                        </CardDescription>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge variant="outline" className="text-xs">
                           {job.eligibility_type === "all_students" ? "All Students" :
                            job.eligibility_type === "branch" ? `${job.eligible_branches?.length || 0} Branches` :
                            `${job.eligible_user_ids?.length || 0} Students`}
+                          {job.eligible_years && job.eligible_years.length > 0 && (
+                            <span className="text-xs text-muted-foreground ml-2">
+                              | Years: {job.eligible_years.join(", ")}
+                            </span>
+                          )}
                         </Badge>
                       </div>
                     </div>
@@ -532,6 +588,31 @@ export default function ManageJobs() {
               </div>
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="company_logo">Company Logo URL</Label>
+              <Input
+                id="company_logo"
+                placeholder="https://example.com/logo.png or /uploads/logo.png"
+                value={formData.company_logo}
+                onChange={(e) => setFormData({ ...formData, company_logo: e.target.value })}
+              />
+              {formData.company_logo && (
+                <div className="mt-2">
+                  <img 
+                    src={formData.company_logo} 
+                    alt="Company logo preview" 
+                    className="h-16 w-16 object-contain border rounded"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Enter a URL or path to the company logo image
+              </p>
+            </div>
+
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="deadline">Application Deadline *</Label>
@@ -584,15 +665,40 @@ export default function ManageJobs() {
 
               {formData.eligibility_type === "branch" && (
                 <div className="space-y-2">
-                  <Label>Eligible Branches</Label>
+                  <Label>Eligible Branches/Departments</Label>
                   <div className="flex gap-2">
+                    <Select
+                      value={selectedDepartmentId}
+                      onValueChange={setSelectedDepartmentId}
+                      disabled={departmentsLoading}
+                    >
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder={departmentsLoading ? "Loading departments..." : "Select a department"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {departments.map((dept) => (
+                          <SelectItem key={dept.id} value={dept.id.toString()}>
+                            {dept.name} {dept.code && `(${dept.code})`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button type="button" onClick={addBranch} disabled={!selectedDepartmentId}>
+                      Add
+                    </Button>
+                  </div>
+                  {/* Fallback manual entry */}
+                  <div className="flex gap-2 mt-2">
                     <Input
-                      placeholder="e.g., CSE, ECE, IT"
+                      placeholder="Or enter branch name manually (e.g., CSE, ECE)"
                       value={tempBranch}
                       onChange={(e) => setTempBranch(e.target.value)}
                       onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addBranch())}
+                      className="text-sm"
                     />
-                    <Button type="button" onClick={addBranch}>Add</Button>
+                    <Button type="button" variant="outline" onClick={addBranch} disabled={!tempBranch.trim()}>
+                      Add Manual
+                    </Button>
                   </div>
                   <div className="flex flex-wrap gap-2 mt-2">
                     {formData.eligible_branches.map((branch) => (
@@ -608,8 +714,52 @@ export default function ManageJobs() {
                       </Badge>
                     ))}
                   </div>
+                  {formData.eligible_branches.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Only students from the selected branches will be able to view and apply for this placement.
+                    </p>
+                  )}
                 </div>
               )}
+
+              {/* Year Filter - Independent of eligibility type */}
+              <div className="space-y-2">
+                <Label>Eligible Years (Optional)</Label>
+                <p className="text-sm text-muted-foreground">
+                  Select which years can see this job. Leave empty to show to all years.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {["1st", "2nd", "3rd", "4th", "5th"].map((year) => (
+                    <div key={year} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`year-${year}`}
+                        checked={formData.eligible_years.includes(year)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setFormData({
+                              ...formData,
+                              eligible_years: [...formData.eligible_years, year],
+                            });
+                          } else {
+                            setFormData({
+                              ...formData,
+                              eligible_years: formData.eligible_years.filter((y) => y !== year),
+                            });
+                          }
+                        }}
+                      />
+                      <Label htmlFor={`year-${year}`} className="cursor-pointer">
+                        {year}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+                {formData.eligible_years.length > 0 && (
+                  <div className="text-sm text-muted-foreground">
+                    Selected: {formData.eligible_years.join(", ")}
+                  </div>
+                )}
+              </div>
 
               {formData.eligibility_type === "specific_students" && (
                 <div className="space-y-2">
@@ -715,7 +865,7 @@ export default function ManageJobs() {
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              Applications for {selectedJob?.role} at {selectedJob?.company_name}
+              Applications for {selectedJob?.role} at {selectedJob?.company || selectedJob?.company_name}
             </DialogTitle>
             <DialogDescription>
               View and manage student applications for this job

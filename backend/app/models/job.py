@@ -31,6 +31,11 @@ class Job(Base):
     # Example: [1, 2, 3, 4, 5]
     eligible_user_ids = Column(JSON, nullable=True)
     
+    # Year-based eligibility (optional - if provided, filters by student year)
+    # Example: ["1st", "2nd", "3rd", "4th"] - job visible only to students in these years
+    # If None or empty, job is visible to all years
+    eligible_years = Column(JSON, nullable=True)
+    
     # Job Details
     job_type = Column(String(50), nullable=False, default="On-Campus")
     # Options: "On-Campus", "Off-Campus", "Internship"
@@ -44,6 +49,9 @@ class Job(Base):
     
     # Application Link
     apply_link = Column(String(500), nullable=True)  # External application URL
+    
+    # Company Logo
+    company_logo = Column(String(500), nullable=True)  # URL or path to company logo image
     
     # Status
     is_active = Column(Boolean, default=True, nullable=False)
@@ -59,6 +67,7 @@ class Job(Base):
     college = relationship("College", back_populates="jobs")
     creator = relationship("User", foreign_keys=[created_by])
     applications = relationship("JobApplication", back_populates="job", cascade="all, delete-orphan")
+    job_rounds = relationship("JobRound", back_populates="job", cascade="all, delete-orphan", order_by="JobRound.order")
 
 
 class JobApplication(Base):
@@ -82,4 +91,5 @@ class JobApplication(Base):
     # Relationships
     job = relationship("Job", back_populates="applications")
     user = relationship("User")
+    round_statuses = relationship("JobApplicationRound", back_populates="application", cascade="all, delete-orphan")
 

@@ -18,6 +18,43 @@ if (typeof window !== 'undefined') {
     }
     originalError.apply(console, args);
   };
+
+  // Handle unhandled promise rejections
+  window.addEventListener('unhandledrejection', (event) => {
+    // Suppress known non-critical errors
+    const errorMessage = event.reason?.message || String(event.reason || '');
+    if (
+      errorMessage.includes('ERR_CONNECTION_REFUSED') ||
+      errorMessage.includes('Failed to fetch') ||
+      errorMessage.includes('NetworkError') ||
+      errorMessage.includes('ResizeObserver loop limit exceeded') ||
+      errorMessage.includes('Login timeout') ||
+      errorMessage.includes('Request timeout')
+    ) {
+      // Don't suppress login timeouts - they're important
+      // But we can make them less noisy by not logging to console.error
+      if (errorMessage.includes('Login timeout') || errorMessage.includes('Request timeout')) {
+        // Let the error handler in the component deal with it
+        return;
+      }
+      event.preventDefault(); // Prevent console error for other cases
+      return;
+    }
+    // Log other unhandled rejections for debugging
+    console.error('Unhandled promise rejection:', event.reason);
+  });
+
+  // Handle general errors
+  window.addEventListener('error', (event) => {
+    const errorMessage = event.message || '';
+    if (
+      errorMessage.includes('ResizeObserver loop limit exceeded') ||
+      errorMessage.includes('Non-Error promise rejection captured')
+    ) {
+      event.preventDefault(); // Prevent console error
+      return;
+    }
+  });
 }
 
 console.log("🚀 Main.tsx is loading...");

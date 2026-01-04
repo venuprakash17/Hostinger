@@ -131,7 +131,18 @@ export function FileUpload({
       formData.append("file", file);
 
       const token = localStorage.getItem('access_token');
-      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://72.60.101.14:8000/api/v1';
+      
+      // Use the same base URL logic as the API client to handle dev mode correctly
+      const getApiBaseUrl = () => {
+        const envUrl = import.meta.env.VITE_API_BASE_URL;
+        // In development, always use localhost if production URL is detected
+        if (import.meta.env.DEV && envUrl && envUrl.includes('72.60.101.14')) {
+          return 'http://localhost:8000/api/v1';
+        }
+        return envUrl || 'http://localhost:8000/api/v1';
+      };
+      
+      const apiBaseUrl = getApiBaseUrl();
       
       // Build URL with query parameters if provided
       let url = `${apiBaseUrl}${endpoint}`;
@@ -216,7 +227,7 @@ export function FileUpload({
 
     try {
       const token = localStorage.getItem('access_token');
-      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://72.60.101.14:8000/api/v1';
+      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
       
       // Add format query param for templates that support it
       const separator = templateUrl.includes('?') ? '&' : '?';

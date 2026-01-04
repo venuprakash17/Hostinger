@@ -356,7 +356,17 @@ export default function CompanyTrainingRound() {
       if (content.quiz_question_type === 'mcq') {
         isCorrect = userAnswer === content.correct_answer;
       } else if (content.quiz_question_type === 'fill_blank') {
-        isCorrect = userAnswer?.toLowerCase().trim() === content.quiz_correct_answer_text?.toLowerCase().trim();
+        // Normalize fill-in-the-blank answers: case-insensitive, trim, remove periods, normalize spaces
+        const normalizeFillBlank = (text: string | undefined): string => {
+          if (!text) return '';
+          return text
+            .toLowerCase()
+            .trim()
+            .replace(/\./g, '') // Remove periods/full stops
+            .replace(/\s+/g, ' ') // Normalize multiple spaces to single space
+            .trim();
+        };
+        isCorrect = normalizeFillBlank(userAnswer) === normalizeFillBlank(content.quiz_correct_answer_text);
       } else if (content.quiz_question_type === 'true_false') {
         isCorrect = userAnswer === (content.quiz_is_true ? 'true' : 'false');
       } else if (content.correct_answer) {

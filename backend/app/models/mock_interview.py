@@ -22,6 +22,7 @@ class InterviewType(str, enum.Enum):
     MANAGERIAL = "managerial"
     MOCK = "mock"
     BEHAVIORAL = "behavioral"
+    GROUP_DISCUSSION = "group_discussion"
 
 
 class MockInterview(Base):
@@ -36,7 +37,7 @@ class MockInterview(Base):
     description = Column(Text, nullable=True)
     
     # Participants
-    student_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)  # Kept for backward compatibility
     interviewer_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     interviewer_name = Column(String(255), nullable=True)  # External interviewer name
     
@@ -73,7 +74,26 @@ class MockInterview(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    student = relationship("User", foreign_keys=[student_id])
+    student = relationship("User", foreign_keys=[student_id])  # Kept for backward compatibility
     interviewer = relationship("User", foreign_keys=[interviewer_id])
     college = relationship("College", foreign_keys=[college_id])
+    students = relationship("MockInterviewStudent", back_populates="interview", cascade="all, delete-orphan")
+
+
+class MockInterviewStudent(Base):
+    """Many-to-many relationship between interviews and students (for group discussions)"""
+    __tablename__ = "mock_interview_students"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    interview_id = Column(Integer, ForeignKey("mock_interviews.id", ondelete="CASCADE"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    interview = relationship("MockInterview", back_populates="students")
+    student = relationship("User", foreign_keys=[student_id])
+    
+    __table_args__ = (
+        {"extend_existing": True}
+    )
 

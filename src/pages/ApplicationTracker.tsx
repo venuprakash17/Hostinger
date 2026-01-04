@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Briefcase, Calendar, MapPin, TrendingUp, Filter, Search, Loader2, ExternalLink, CheckCircle2, Clock, XCircle } from "lucide-react";
+import { Briefcase, Calendar, MapPin, TrendingUp, Filter, Search, Loader2, ExternalLink, CheckCircle2, Clock, XCircle, MessageSquare, Info } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { apiClient } from "@/integrations/api/client";
 import { toast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 interface JobApplication {
   id: number;
@@ -16,7 +25,8 @@ interface JobApplication {
   user_id: number;
   status: string;
   applied_date?: string;
-  current_round?: string;
+  current_round?: string | null;
+  notes?: string | null;
   resume_version?: string;
   ats_score?: number;
   job?: {
@@ -27,6 +37,7 @@ interface JobApplication {
     ctc: string;
     job_type: string;
     deadline: string;
+    rounds?: string[];
   };
 }
 
@@ -54,9 +65,10 @@ export default function ApplicationTracker() {
       const enrichedApplications: JobApplication[] = (apps || []).map((app: any) => ({
         ...app,
         job: jobsMap.get(app.job_id) || null,
-        applied_date: app.applied_at,
+        applied_date: app.applied_at || app.applied_date,
         status: app.status || "Applied",
         current_round: app.current_round || null,
+        notes: app.notes || null,
         ats_score: app.ats_score || null,
         resume_version: app.resume_version || null
       }));
@@ -227,6 +239,7 @@ export default function ApplicationTracker() {
                     <TableHead>Status</TableHead>
                     <TableHead>Current Round</TableHead>
                     <TableHead>ATS Score</TableHead>
+                    <TableHead>Notes</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -254,7 +267,20 @@ export default function ApplicationTracker() {
                           </span>
                         </Badge>
                       </TableCell>
-                      <TableCell>{app.current_round || "N/A"}</TableCell>
+                      <TableCell>
+                        {app.current_round ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="font-medium">{app.current_round}</span>
+                            {app.job?.rounds && app.job.rounds.length > 0 && (
+                              <span className="text-xs text-muted-foreground">
+                                {app.job.rounds.indexOf(app.current_round) + 1} of {app.job.rounds.length}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">Not started</span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         {app.ats_score ? (
                           <div className="flex items-center gap-2">
@@ -267,6 +293,50 @@ export default function ApplicationTracker() {
                             </div>
                           </div>
                         ) : "N/A"}
+                      </TableCell>
+                      <TableCell>
+                        {app.notes ? (
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button variant="ghost" size="sm" className="flex items-center gap-1">
+                                <MessageSquare className="h-4 w-4" />
+                                View Notes
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Progress Notes & Feedback</DialogTitle>
+                                <DialogDescription>
+                                  Updates from the placement team about your application progress
+                                </DialogDescription>
+                              </DialogHeader>
+                              <div className="space-y-4">
+                                <div>
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <Info className="h-4 w-4 text-muted-foreground" />
+                                    <span className="text-sm font-medium">Status: {app.status}</span>
+                                  </div>
+                                  {app.current_round && (
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <Info className="h-4 w-4 text-muted-foreground" />
+                                      <span className="text-sm font-medium">Current Round: {app.current_round}</span>
+                                    </div>
+                                  )}
+                                </div>
+                                <div>
+                                  <label className="text-sm font-medium mb-2 block">Notes:</label>
+                                  <Textarea
+                                    value={app.notes}
+                                    readOnly
+                                    className="min-h-[150px]"
+                                  />
+                                </div>
+                              </div>
+                            </DialogContent>
+                          </Dialog>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">No notes yet</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Button variant="ghost" size="sm">

@@ -5,7 +5,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Trash2, Edit2, CheckCircle2, X, FileQuestion, Upload, Download } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Plus, Trash2, Edit2, CheckCircle2, X, FileQuestion, Upload, Download, ChevronDown, ChevronUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiClient } from "@/integrations/api/client";
@@ -32,6 +33,7 @@ interface QuestionBuilderProps {
 
 export function QuestionBuilder({ questions, onChange }: QuestionBuilderProps) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [isAddQuestionOpen, setIsAddQuestionOpen] = useState(true); // Default to open
   const [currentQuestion, setCurrentQuestion] = useState<Question>({
     question: "",
     question_type: "mcq",
@@ -48,12 +50,10 @@ export function QuestionBuilder({ questions, onChange }: QuestionBuilderProps) {
   const { toast } = useToast();
 
   const handleAddQuestion = () => {
+    // If form is empty, just reset it (don't show error)
     if (!currentQuestion.question.trim()) {
-      toast({
-        title: "Error",
-        description: "Question text is required",
-        variant: "destructive",
-      });
+      resetForm();
+      setIsAddQuestionOpen(false); // Collapse the form
       return;
     }
 
@@ -109,6 +109,9 @@ export function QuestionBuilder({ questions, onChange }: QuestionBuilderProps) {
 
     // Reset form
     resetForm();
+    
+    // Collapse form after adding question
+    setIsAddQuestionOpen(false);
 
     toast({
       title: "Success",
@@ -133,6 +136,7 @@ export function QuestionBuilder({ questions, onChange }: QuestionBuilderProps) {
   const handleEditQuestion = (index: number) => {
     setCurrentQuestion(questions[index]);
     setEditingIndex(index);
+    setIsAddQuestionOpen(true); // Open form when editing
     // Scroll to form
     document.getElementById("question-form")?.scrollIntoView({ behavior: "smooth" });
   };
@@ -151,6 +155,7 @@ export function QuestionBuilder({ questions, onChange }: QuestionBuilderProps) {
   const handleCancelEdit = () => {
     setEditingIndex(null);
     resetForm();
+    setIsAddQuestionOpen(false); // Collapse form after cancel
   };
 
   const handleBulkUpload = async (file: File) => {
@@ -280,14 +285,32 @@ export function QuestionBuilder({ questions, onChange }: QuestionBuilderProps) {
         </div>
       </div>
 
-      {/* Question Form */}
-      <Card id="question-form" className="border-2 border-dashed">
-        <CardHeader>
-          <CardTitle className="text-base">
-            {editingIndex !== null ? `Edit Question ${editingIndex + 1}` : "Add New Question"}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      {/* Question Form - Collapsible */}
+      <Collapsible open={isAddQuestionOpen} onOpenChange={setIsAddQuestionOpen}>
+        <Card id="question-form" className="border-2 border-dashed">
+          <CardHeader>
+            <CollapsibleTrigger asChild>
+              <div className="flex items-center justify-between cursor-pointer">
+                <CardTitle className="text-base">
+                  {editingIndex !== null ? `Edit Question ${editingIndex + 1}` : "Add New Question"}
+                </CardTitle>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                >
+                  {isAddQuestionOpen ? (
+                    <ChevronUp className="h-4 w-4" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </CollapsibleTrigger>
+          </CardHeader>
+          <CollapsibleContent>
+            <CardContent className="space-y-4">
           <div>
             <Label>Question Type *</Label>
             <Select
@@ -325,7 +348,6 @@ export function QuestionBuilder({ questions, onChange }: QuestionBuilderProps) {
               onChange={(e) => setCurrentQuestion({ ...currentQuestion, question: e.target.value })}
               placeholder="Enter your question here..."
               rows={3}
-              required
             />
           </div>
 
@@ -339,7 +361,6 @@ export function QuestionBuilder({ questions, onChange }: QuestionBuilderProps) {
                     value={currentQuestion.option_a || ""}
                     onChange={(e) => setCurrentQuestion({ ...currentQuestion, option_a: e.target.value })}
                     placeholder="Option A"
-                    required
                   />
                   {currentQuestion.correct_answer === "A" && (
                     <CheckCircle2 className="h-5 w-5 text-green-500" />
@@ -353,7 +374,6 @@ export function QuestionBuilder({ questions, onChange }: QuestionBuilderProps) {
                     value={currentQuestion.option_b || ""}
                     onChange={(e) => setCurrentQuestion({ ...currentQuestion, option_b: e.target.value })}
                     placeholder="Option B"
-                    required
                   />
                   {currentQuestion.correct_answer === "B" && (
                     <CheckCircle2 className="h-5 w-5 text-green-500" />
@@ -367,7 +387,6 @@ export function QuestionBuilder({ questions, onChange }: QuestionBuilderProps) {
                     value={currentQuestion.option_c || ""}
                     onChange={(e) => setCurrentQuestion({ ...currentQuestion, option_c: e.target.value })}
                     placeholder="Option C"
-                    required
                   />
                   {currentQuestion.correct_answer === "C" && (
                     <CheckCircle2 className="h-5 w-5 text-green-500" />
@@ -381,7 +400,6 @@ export function QuestionBuilder({ questions, onChange }: QuestionBuilderProps) {
                     value={currentQuestion.option_d || ""}
                     onChange={(e) => setCurrentQuestion({ ...currentQuestion, option_d: e.target.value })}
                     placeholder="Option D"
-                    required
                   />
                   {currentQuestion.correct_answer === "D" && (
                     <CheckCircle2 className="h-5 w-5 text-green-500" />
@@ -420,7 +438,6 @@ export function QuestionBuilder({ questions, onChange }: QuestionBuilderProps) {
                 onChange={(e) => setCurrentQuestion({ ...currentQuestion, correct_answer_text: e.target.value })}
                 placeholder="Enter the correct answer (e.g., Paris)"
                 rows={2}
-                required
               />
             </div>
           )}
@@ -456,7 +473,6 @@ export function QuestionBuilder({ questions, onChange }: QuestionBuilderProps) {
                 min="1"
                 value={currentQuestion.marks}
                 onChange={(e) => setCurrentQuestion({ ...currentQuestion, marks: parseInt(e.target.value) || 1 })}
-                required
               />
             </div>
             <div>
@@ -486,7 +502,7 @@ export function QuestionBuilder({ questions, onChange }: QuestionBuilderProps) {
               <Plus className="h-4 w-4 mr-2" />
               {editingIndex !== null ? "Update Question" : "Add Question"}
             </Button>
-            {editingIndex !== null && (
+            {editingIndex !== null ? (
               <Button
                 type="button"
                 variant="outline"
@@ -495,10 +511,24 @@ export function QuestionBuilder({ questions, onChange }: QuestionBuilderProps) {
                 <X className="h-4 w-4 mr-2" />
                 Cancel
               </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  resetForm();
+                  setIsAddQuestionOpen(false);
+                }}
+              >
+                <X className="h-4 w-4 mr-2" />
+                Clear Form
+              </Button>
             )}
           </div>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       {/* Questions List */}
       {questions.length > 0 && (

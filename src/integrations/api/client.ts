@@ -56,8 +56,11 @@ class APIClient {
     const url = `${this.baseURL}${endpoint}`;
     const token = getToken();
 
+    // Don't set Content-Type for FormData - browser will set it with boundary
+    const isFormData = options.body instanceof FormData;
+    
     const headers: HeadersInit = {
-      'Content-Type': 'application/json',
+      ...(!isFormData && { 'Content-Type': 'application/json' }),
       ...options.headers,
     };
 
@@ -129,19 +132,30 @@ class APIClient {
       
       if (!response.ok) {
         let errorMessage = response.statusText;
+        let errorData: any = null;
         try {
           // Try to parse as JSON first
           if (responseText) {
-            const errorData = JSON.parse(responseText);
+            errorData = JSON.parse(responseText);
             // FastAPI returns errors with 'detail' field
-            errorMessage = errorData.detail || errorData.message || errorMessage;
+            // For 422 errors, detail is usually an array of validation errors
+            if (errorData.detail) {
+              if (Array.isArray(errorData.detail)) {
+                // Format validation errors for better readability
+                errorMessage = JSON.stringify(errorData.detail);
+              } else {
+                errorMessage = errorData.detail;
+              }
+            } else if (errorData.message) {
+              errorMessage = errorData.message;
+            }
           }
         } catch (parseError) {
           // If JSON parsing fails, use text as error message
           errorMessage = responseText || errorMessage;
         }
         
-        console.log(`[API Client] HTTP error ${response.status} for ${url}:`, errorMessage);
+        console.log(`[API Client] HTTP error ${response.status} for ${url}:`, errorData || errorMessage);
         
         // Provide better error messages for common status codes
         if (response.status === 401 || response.status === 403) {
@@ -150,8 +164,10 @@ class APIClient {
           }
         }
         
+        // For 422 errors, preserve the full error data structure
         const error = new Error(errorMessage || `API error: ${response.statusText}`);
         (error as any).status = response.status;
+        (error as any).errorData = errorData; // Attach full error data for detailed parsing
         throw error;
       }
 
@@ -159,14 +175,18 @@ class APIClient {
       try {
         if (!responseText || responseText.trim() === '') {
           // If response is empty, check if we expect a list
-          // Only treat as list if it's a query endpoint (has ?) or ends with the base path
-          const isListEndpoint = (endpoint.includes('/quizzes?') || endpoint.includes('/coding-problems?') || endpoint.includes('/global-content?') || endpoint.includes('/company-training?')) ||
+          // Explicitly exclude attempt endpoints and other single-resource endpoints
+          const isAttemptEndpoint = endpoint.includes('/attempt') || endpoint.includes('/quiz-attempts/');
+          const isSingleResourceEndpoint = endpoint.match(/\/\d+$/) || endpoint.match(/\/\d+\/[^\/]+$/) || isAttemptEndpoint;
+          const isListEndpoint = !isSingleResourceEndpoint && (
+                                (endpoint.includes('/quizzes?') || endpoint.includes('/coding-problems?') || endpoint.includes('/global-content?') || endpoint.includes('/company-training?')) ||
                                 (endpoint === '/quizzes' || endpoint === '/coding-problems' || endpoint === '/global-content') ||
-                                (endpoint.includes('/quizzes/') && !endpoint.match(/\/quizzes\/\d+$/)) ||
+                                (endpoint.includes('/quizzes/') && !endpoint.match(/\/quizzes\/\d+$/) && !endpoint.includes('/attempt')) ||
                                 (endpoint.includes('/coding-problems/') && !endpoint.match(/\/coding-problems\/\d+$/)) ||
                                 (endpoint.includes('/company-training/companies?') || endpoint.includes('/company-training/roles?') || 
                                  endpoint.includes('/company-training/practice-sections?') || endpoint.includes('/company-training/rounds?') ||
-                                 endpoint.includes('/company-training/round-contents?'));
+                                 endpoint.includes('/company-training/round-contents?'))
+                              );
           if (isListEndpoint) {
             return [] as T;
           }
@@ -174,26 +194,36 @@ class APIClient {
         }
         const parsed = JSON.parse(responseText);
         // Only treat as list if it's a query endpoint or base path, not a single resource
-        const isListEndpoint = (endpoint.includes('/quizzes?') || endpoint.includes('/coding-problems?') || endpoint.includes('/global-content?') || endpoint.includes('/company-training?')) ||
+        // Explicitly exclude attempt endpoints and other single-resource endpoints
+        const isAttemptEndpoint = endpoint.includes('/attempt') || endpoint.includes('/quiz-attempts/');
+        const isSingleResourceEndpoint = endpoint.match(/\/\d+$/) || endpoint.match(/\/\d+\/[^\/]+$/) || isAttemptEndpoint;
+        const isListEndpoint = !isSingleResourceEndpoint && (
+                                (endpoint.includes('/quizzes?') || endpoint.includes('/coding-problems?') || endpoint.includes('/global-content?') || endpoint.includes('/company-training?')) ||
                                 (endpoint === '/quizzes' || endpoint === '/coding-problems' || endpoint === '/global-content') ||
-                                (endpoint.includes('/quizzes/') && !endpoint.match(/\/quizzes\/\d+$/)) ||
+                                (endpoint.includes('/quizzes/') && !endpoint.match(/\/quizzes\/\d+$/) && !endpoint.includes('/attempt')) ||
                                 (endpoint.includes('/coding-problems/') && !endpoint.match(/\/coding-problems\/\d+$/)) ||
                                 (endpoint.includes('/company-training/companies?') || endpoint.includes('/company-training/roles?') || 
                                  endpoint.includes('/company-training/practice-sections?') || endpoint.includes('/company-training/rounds?') ||
-                                 endpoint.includes('/company-training/round-contents?'));
+                                 endpoint.includes('/company-training/round-contents?'))
+                              );
         if (isListEndpoint) {
           return (Array.isArray(parsed) ? parsed : []) as unknown as T;
         }
         return parsed;
       } catch (parseError) {
         // If response is empty or not JSON, check if we expect a list
-        const isListEndpoint = (endpoint.includes('/quizzes?') || endpoint.includes('/coding-problems?') || endpoint.includes('/global-content?') || endpoint.includes('/company-training?')) ||
+        // Explicitly exclude attempt endpoints and other single-resource endpoints
+        const isAttemptEndpoint = endpoint.includes('/attempt') || endpoint.includes('/quiz-attempts/');
+        const isSingleResourceEndpoint = endpoint.match(/\/\d+$/) || endpoint.match(/\/\d+\/[^\/]+$/) || isAttemptEndpoint;
+        const isListEndpoint = !isSingleResourceEndpoint && (
+                                (endpoint.includes('/quizzes?') || endpoint.includes('/coding-problems?') || endpoint.includes('/global-content?') || endpoint.includes('/company-training?')) ||
                                 (endpoint === '/quizzes' || endpoint === '/coding-problems' || endpoint === '/global-content') ||
-                                (endpoint.includes('/quizzes/') && !endpoint.match(/\/quizzes\/\d+$/)) ||
+                                (endpoint.includes('/quizzes/') && !endpoint.match(/\/quizzes\/\d+$/) && !endpoint.includes('/attempt')) ||
                                 (endpoint.includes('/coding-problems/') && !endpoint.match(/\/coding-problems\/\d+$/)) ||
                                 (endpoint.includes('/company-training/companies?') || endpoint.includes('/company-training/roles?') || 
                                  endpoint.includes('/company-training/practice-sections?') || endpoint.includes('/company-training/rounds?') ||
-                                 endpoint.includes('/company-training/round-contents?'));
+                                 endpoint.includes('/company-training/round-contents?'))
+                              );
         if (isListEndpoint) {
           return [] as T;
         }
@@ -287,7 +317,7 @@ class APIClient {
     const timeoutId = setTimeout(() => {
       console.error('[API Client] Login timeout - aborting request');
       controller.abort();
-    }, 10000); // 10 second timeout for login
+    }, 30000); // 30 second timeout for login (increased for slow backends)
     
     try {
       console.log('[API Client] Making fetch request...');
@@ -362,9 +392,18 @@ class APIClient {
       }
       
       // Check for timeout/abort errors
-      if (error.name === 'AbortError' || error.message?.includes('aborted')) {
-        console.error('[API Client] Request was aborted (timeout)');
-        throw new Error('Login request timed out. The backend server may be slow or not responding. Please check if the server is running on port 8000.');
+      if (error.name === 'AbortError' || error.message?.includes('aborted') || error.message?.includes('timeout')) {
+        // Check if it's a network issue vs actual timeout
+        const isNetworkIssue = error.message?.includes('Failed to fetch') || 
+                               error.message?.includes('ERR_CONNECTION_REFUSED') ||
+                               error.cause?.code === 'ECONNREFUSED';
+        
+        if (isNetworkIssue) {
+          throw new Error('Backend server is not running. Please start the backend server on port 8000.');
+        } else {
+          console.warn('[API Client] Request timed out - backend may be slow');
+          throw new Error('Login request timed out. The backend server may be slow or not responding. Please try again or check if the server is running on port 8000.');
+        }
       }
       
       throw error;
@@ -572,7 +611,22 @@ class APIClient {
   }
 
   async getMyApplications() {
-    return this.request('/jobs/applications/my');
+    return this.request('/job-applications/my');
+  }
+
+  async getJobApplications(jobId: number) {
+    return this.request(`/jobs/${jobId}/applications`);
+  }
+
+  async updateJobApplication(applicationId: number, data: {
+    status?: string;
+    current_round?: string | null;
+    notes?: string | null;
+  }) {
+    return this.request(`/jobs/applications/${applicationId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
   }
 
   async createJob(data: {
@@ -605,9 +659,12 @@ class APIClient {
     description?: string;
     location?: string;
     ctc?: string;
+    company_logo?: string | null;
+    apply_link?: string | null;
     eligibility_type?: "all_students" | "branch" | "specific_students";
-    eligible_branches?: string[];
-    eligible_user_ids?: number[];
+    eligible_branches?: string[] | null;
+    eligible_user_ids?: number[] | null;
+    eligible_years?: string[] | null;
     job_type?: "On-Campus" | "Off-Campus" | "Internship";
     requirements?: string[];
     rounds?: string[];
@@ -746,6 +803,144 @@ class APIClient {
     return { success: true };
   }
 
+  // Job Rounds
+  async createJobRound(jobId: number, data: {
+    name: string;
+    order: number;
+    description?: string;
+    is_active?: boolean;
+  }) {
+    return this.request(`/job-rounds/jobs/${jobId}/rounds`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async listJobRounds(jobId: number) {
+    return this.request(`/job-rounds/jobs/${jobId}/rounds`);
+  }
+
+  async updateJobRound(roundId: number, data: {
+    name?: string;
+    order?: number;
+    description?: string;
+    is_active?: boolean;
+  }) {
+    return this.request(`/job-rounds/rounds/${roundId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deleteJobRound(roundId: number) {
+    return this.request(`/job-rounds/rounds/${roundId}`, {
+      method: 'DELETE'
+    });
+  }
+
+  async getRoundStudents(roundId: number, statusFilter?: string) {
+    const params = new URLSearchParams();
+    if (statusFilter) params.append('status_filter', statusFilter);
+    const queryString = params.toString();
+    return this.request(`/job-rounds/rounds/${roundId}/students${queryString ? `?${queryString}` : ''}`);
+  }
+
+  async bulkUploadRoundResults(roundId: number, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await fetch(`${this.baseURL}/job-rounds/rounds/${roundId}/bulk-upload`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${getToken()}`
+      },
+      body: formData
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Upload failed');
+    }
+    
+    return response.json();
+  }
+
+  async addStudentsToRound(roundId: number, rollNumbers: string[]) {
+    return this.request(`/job-rounds/rounds/${roundId}/add-students`, {
+      method: 'POST',
+      body: JSON.stringify(rollNumbers)
+    });
+  }
+
+  async downloadRoundTemplate(roundId: number) {
+    const response = await fetch(`${this.baseURL}/job-rounds/rounds/${roundId}/template`, {
+      headers: {
+        'Authorization': `Bearer ${getToken()}`
+      }
+    });
+    return response.blob();
+  }
+
+  async bulkPromoteJobRoundStudents(roundId: number, studentIds?: number[]) {
+    // Always send a dict, even if empty
+    const body: { student_ids?: number[] } = {};
+    if (studentIds && studentIds.length > 0) {
+      body.student_ids = studentIds;
+    }
+    return this.request(`/job-rounds/rounds/${roundId}/bulk-promote`, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+  }
+
+  async updateStudentRoundStatus(roundId: number, studentId: number, status: string, remarks?: string) {
+    return this.request(`/job-rounds/rounds/${roundId}/students/${studentId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status, remarks })
+    });
+  }
+
+  // Job Analytics
+  async getJobAnalytics(jobId?: number, filters?: {
+    college_id?: number;
+    department_id?: number;
+    year?: string;
+    start_date?: string;
+    end_date?: string;
+  }) {
+    const params = new URLSearchParams();
+    if (jobId) params.append('job_id', jobId.toString());
+    if (filters?.college_id) params.append('college_id', filters.college_id.toString());
+    if (filters?.department_id) params.append('department_id', filters.department_id.toString());
+    if (filters?.year) params.append('year', filters.year);
+    if (filters?.start_date) params.append('start_date', filters.start_date);
+    if (filters?.end_date) params.append('end_date', filters.end_date);
+    const queryString = params.toString();
+    try {
+      return await this.request(`/jobs/analytics${queryString ? `?${queryString}` : ''}`);
+    } catch (error: any) {
+      // If analytics fails, return empty structure to prevent UI crash
+      console.error("Analytics fetch error:", error);
+      return {
+        total_jobs: 0,
+        total_applications: 0,
+        selected_count: 0,
+        overall_selection_rate: 0,
+        jobs: [],
+        round_wise_stats: [],
+        year_wise_stats: [],
+        branch_wise_stats: []
+      };
+    }
+  }
+
+  async getStudentJobStatus(studentId?: number) {
+    const params = new URLSearchParams();
+    if (studentId) params.append('student_id', studentId.toString());
+    const queryString = params.toString();
+    return this.request(`/jobs/student-status${queryString ? `?${queryString}` : ''}`);
+  }
+
   // Resume - ATS Score & Cover Letter
   async calculateATSScore(data: {
     resume_data: {
@@ -786,49 +981,14 @@ class APIClient {
     });
   }
 
-  // Job Aggregation
-  async syncJobsFromSources(data: {
-    sources: string[];
-    keywords?: string[];
-    location?: string;
-    max_results?: number;
-    college_id?: number;
-  }) {
-    return this.request('/job-aggregation/sync', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  }
-
-  async getAggregatedJobs(filters?: {
-    source?: string;
-    is_imported?: boolean;
-    college_id?: number;
-    skip?: number;
-    limit?: number;
-  }) {
-    const params = new URLSearchParams();
-    if (filters?.source) params.append('source', filters.source);
-    if (filters?.is_imported !== undefined) params.append('is_imported', filters.is_imported.toString());
-    if (filters?.college_id) params.append('college_id', filters.college_id.toString());
-    if (filters?.skip) params.append('skip', filters.skip.toString());
-    if (filters?.limit) params.append('limit', filters.limit.toString());
-    const queryString = params.toString();
-    return this.request(`/job-aggregation${queryString ? `?${queryString}` : ''}`);
-  }
-
-  async importAggregatedJob(aggregationId: number) {
-    return this.request(`/job-aggregation/${aggregationId}/import`, {
-      method: 'POST'
-    });
-  }
 
   // Mock Interviews
   async createMockInterview(data: {
     title: string;
-    interview_type?: 'technical' | 'hr' | 'managerial' | 'mock' | 'behavioral';
+    interview_type?: 'technical' | 'hr' | 'managerial' | 'mock' | 'behavioral' | 'group_discussion';
     description?: string;
-    student_id: number;
+    student_id?: number;  // Optional for backward compatibility
+    student_ids?: number[];  // List of student IDs for group discussions
     interviewer_id?: number;
     interviewer_name?: string;
     scheduled_at: string;
@@ -868,6 +1028,10 @@ class APIClient {
 
   async getInterview(interviewId: number) {
     return this.request(`/mock-interviews/${interviewId}`);
+  }
+
+  async getAvailableFaculty() {
+    return this.request('/mock-interviews/faculty');
   }
 
   async updateInterview(interviewId: number, data: {
@@ -1521,6 +1685,13 @@ class APIClient {
     return this.request(`/global-content/quizzes${queryString ? `?${queryString}` : ''}`);
   }
 
+  async getQuizzes(isActive?: boolean) {
+    const params = new URLSearchParams();
+    if (isActive !== undefined) params.append('is_active', isActive.toString());
+    const queryString = params.toString();
+    return this.request(`/global-content/quizzes${queryString ? `?${queryString}` : ''}`);
+  }
+
   async getQuiz(quizId: number) {
     return this.request(`/global-content/quizzes/${quizId}`);
   }
@@ -1555,6 +1726,7 @@ class APIClient {
     subject?: string;
     duration_minutes?: number;
     total_marks?: number;
+    passing_marks?: number;
     questions?: Array<any>;
     is_active?: boolean;
     start_time?: string;
@@ -1565,6 +1737,15 @@ class APIClient {
     department?: string;
     section_id?: number;
     year?: string;
+    assigned_branches?: number[];
+    assigned_sections?: number[];
+    allow_negative_marking?: boolean;
+    shuffle_questions?: boolean;
+    shuffle_options?: boolean;
+    status?: 'draft' | 'published' | 'archived';
+    question_bank_ids?: number[];
+    use_random_questions?: boolean;
+    random_question_count?: number;
   }) {
     return this.request('/global-content/quizzes', {
       method: 'POST',
@@ -1578,6 +1759,7 @@ class APIClient {
     subject?: string;
     duration_minutes?: number;
     total_marks?: number;
+    passing_marks?: number;
     questions?: Array<any>;
     is_active?: boolean;
     start_time?: string;
@@ -1588,6 +1770,15 @@ class APIClient {
     department?: string;
     section_id?: number;
     year?: string;
+    assigned_branches?: number[];
+    assigned_sections?: number[];
+    allow_negative_marking?: boolean;
+    shuffle_questions?: boolean;
+    shuffle_options?: boolean;
+    status?: 'draft' | 'published' | 'archived';
+    question_bank_ids?: number[];
+    use_random_questions?: boolean;
+    random_question_count?: number;
   }) {
     return this.request(`/global-content/quizzes/${quizId}`, {
       method: 'PUT',

@@ -90,34 +90,32 @@ def filter_by_scope(roles_query, current_user: Optional[User], db: Session):
         
         # Department level
         if profile.department:
-            # For JSON columns in PostgreSQL, cast to text and use LIKE
-            # Using bindparam for safe parameter binding
+            # For JSON columns in SQLite, they are stored as TEXT
+            # Use SQLAlchemy's cast function for database-agnostic casting (works in SQLite and PostgreSQL)
+            dept_pattern = f'%{profile.department}%'
             conditions.append(
                 and_(
                     CompanyRoleModel.scope_type == "department",
                     or_(
                         CompanyRoleModel.target_departments.is_(None),
-                        # Cast JSON to text using PostgreSQL syntax with parameter binding
-                        text("company_roles.target_departments::text LIKE :dept_pattern").bindparams(
-                            dept_pattern=f'%{profile.department}%'
-                        )
+                        # Cast JSON to text using database-agnostic syntax
+                        cast(CompanyRoleModel.target_departments, String).like(dept_pattern)
                     )
                 )
             )
         
         # Section level
         if profile.section:
-            # For JSON columns in PostgreSQL, cast to text and use LIKE
-            # Using bindparam for safe parameter binding
+            # For JSON columns in SQLite, they are stored as TEXT
+            # Use SQLAlchemy's cast function for database-agnostic casting (works in SQLite and PostgreSQL)
+            section_pattern = f'%{profile.section}%'
             conditions.append(
                 and_(
                     CompanyRoleModel.scope_type == "section",
                     or_(
                         CompanyRoleModel.target_sections.is_(None),
-                        # Cast JSON to text using PostgreSQL syntax with parameter binding
-                        text("company_roles.target_sections::text LIKE :section_pattern").bindparams(
-                            section_pattern=f'%{profile.section}%'
-                        )
+                        # Cast JSON to text using database-agnostic syntax
+                        cast(CompanyRoleModel.target_sections, String).like(section_pattern)
                     )
                 )
             )

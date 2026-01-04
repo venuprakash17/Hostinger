@@ -21,7 +21,7 @@ export const createATSSafeStyles = (templateConfig?: { fontFamily?: string; font
     padding: 54, // Match preview: 0.75in = 54pt for better visual match
     fontSize: templateConfig?.fontSize || 10, // Match preview: 10pt base font
     fontFamily: templateConfig?.fontFamily || 'Helvetica',
-    lineHeight: 1.35, // Match preview better: 1.4 -> 1.35 for single page
+    lineHeight: 1.6, // Match preview: further increased for better readability
     color: templateConfig?.colorScheme?.primary || '#000000',
     maxHeight: 792, // A4 height in points (11in = 792pt) - enforce single page
   },
@@ -57,16 +57,16 @@ export const createATSSafeStyles = (templateConfig?: { fontFamily?: string; font
   },
   section: {
     marginTop: 0,
-    marginBottom: 10, // Match preview better: 12px -> 10pt
+    marginBottom: 22, // Match preview: more spacing for less clustering
   },
   sectionTitle: {
-    fontSize: 11, // Match preview better
+    fontSize: 11, // Match preview
     fontWeight: 'bold',
     borderBottomWidth: 1,
     borderBottomColor: templateConfig?.colorScheme?.primary || '#000000',
     borderBottomStyle: 'solid',
     paddingBottom: 2,
-    marginBottom: 6, // Match preview better: 8px -> 6pt
+    marginBottom: 10, // Match preview: fixed spacing after section title
     marginTop: 0,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -75,18 +75,18 @@ export const createATSSafeStyles = (templateConfig?: { fontFamily?: string; font
   },
   text: {
     fontSize: 10, // Match preview: base font size
-    lineHeight: 1.35, // Match preview: 1.4 -> 1.35
+    lineHeight: 1.6, // Match preview: further increased for better readability
     marginTop: 2,
     marginBottom: 2,
   },
   summary: {
     fontSize: 10, // Match preview
-    lineHeight: 1.35, // Match preview
+    lineHeight: 1.6, // Match preview: further increased for better readability
     marginBottom: 0,
     textAlign: 'left',
   },
   subsection: {
-    marginBottom: 8, // Match preview better: 10px -> 8pt
+    marginBottom: 10, // Match preview: increased spacing for less clustering
   },
   title: {
     fontSize: 11, // Match preview better
@@ -98,7 +98,7 @@ export const createATSSafeStyles = (templateConfig?: { fontFamily?: string; font
     fontSize: 10, // Match preview
     color: templateConfig?.colorScheme?.secondary || '#333333',
     marginBottom: 2,
-    lineHeight: 1.35, // Match preview
+    lineHeight: 1.6, // Match preview: further increased for better readability
   },
   date: {
     fontSize: 9, // Match preview better
@@ -108,9 +108,9 @@ export const createATSSafeStyles = (templateConfig?: { fontFamily?: string; font
   },
   bullet: {
     fontSize: 10, // Match preview: base font
-    marginLeft: 18, // Match preview better
-    marginBottom: 2, // Match preview better
-    lineHeight: 1.35, // Match preview
+    marginLeft: 18, // Match preview
+    marginBottom: 2, // Match preview
+    lineHeight: 1.6, // Match preview: further increased for better readability
   },
   compactRow: {
     flexDirection: 'row',
@@ -125,7 +125,7 @@ export const createATSSafeStyles = (templateConfig?: { fontFamily?: string; font
   },
   skillItems: {
     fontSize: 10, // Match preview
-    lineHeight: 1.35, // Match preview
+    lineHeight: 1.6, // Match preview: further increased for better readability
   },
 });
 
@@ -239,27 +239,53 @@ export async function generateATSSafePDF(
     },
   } : templateConfig;
   
-  console.log(`[PDF Generator] Using template: ${template}`, {
-    name: mergedConfig.name,
-    headerStyle: mergedConfig.layout.headerStyle,
-    sectionSpacing: mergedConfig.layout.sectionSpacing,
-    customizations: customizationSettings ? 'Applied' : 'None'
-  });
-  const styles = createATSSafeStyles(mergedConfig);
-  const { 
-    profile, 
-    summary, 
-    education, 
-    work_experience,
-    projects, 
-    skills, 
-    certifications, 
-    achievements, 
-    extracurricular, 
-    hobbies,
-    languages,
-    references
-  } = resumeData;
+      // CRITICAL: Use the projects from resumeData EXACTLY as passed (no modifications)
+      // The preview modal already ensures displayData.projects contains the correct enhanced projects
+      // DO NOT slice or modify - use EXACT same projects array
+      const projectsFromPreview = resumeData.projects || [];
+      
+      console.log(`[PDF Generator] Using template: ${template}`, {
+        name: mergedConfig.name,
+        headerStyle: mergedConfig.layout.headerStyle,
+        sectionSpacing: mergedConfig.layout.sectionSpacing,
+        customizations: customizationSettings ? 'Applied' : 'None',
+        projectsCount: projectsFromPreview.length,
+        firstProjectTitle: projectsFromPreview[0]?.project_title,
+        firstProjectDesc: projectsFromPreview[0]?.description?.substring(0, 150),
+        allProjectTitles: projectsFromPreview.map((p: any) => p.project_title),
+      });
+      
+      // Use EXACT same projects array (already top 3 from preview)
+      // DO NOT modify - preview already ensures correct projects
+      let finalResumeData = {
+        ...resumeData,
+        projects: projectsFromPreview, // Use EXACT same array (no slicing, no modification)
+      };
+      
+      console.log('[PDF Generator] Using EXACT projects from resumeData (same as preview):', {
+        projectCount: finalResumeData.projects.length,
+        firstProjectTitle: finalResumeData.projects[0]?.project_title,
+        firstProjectDesc: finalResumeData.projects[0]?.description?.substring(0, 150),
+        secondProjectDesc: finalResumeData.projects[1]?.description?.substring(0, 150),
+        thirdProjectDesc: finalResumeData.projects[2]?.description?.substring(0, 150),
+        source: 'resumeData (from preview - no modifications)'
+      });
+      
+      const styles = createATSSafeStyles(mergedConfig);
+      const { 
+        profile, 
+        summary, 
+        education, 
+        work_experience,
+        projects, 
+        skills, 
+        certifications, 
+        achievements, 
+        extracurricular, 
+        hobbies,
+        languages,
+        references
+      } = finalResumeData;
 
   const ResumePDF = (
     <Document>
@@ -341,12 +367,12 @@ export async function generateATSSafePDF(
                 const achievements = exp.achievements || [];
 
                 return (
-                  <View key={idx} style={styles.subsection}>
+                  <View key={idx} style={{ marginBottom: 14 }}>
                     <View style={styles.compactRow}>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.title}>{jobTitle}</Text>
                         {(company || location) && (
-                          <Text style={styles.subtitle}>
+                          <Text style={[styles.subtitle, { marginTop: 2 }]}>
                             {company}{location ? ` • ${location}` : ''}
                           </Text>
                         )}
@@ -356,7 +382,7 @@ export async function generateATSSafePDF(
                       )}
                     </View>
                     {description && (
-                      <Text style={styles.text}>{description}</Text>
+                      <Text style={[styles.text, { marginTop: 5 }]}>{description}</Text>
                     )}
                     {achievements && achievements.length > 0 && (
                       <View style={{ marginTop: 2 }}>
@@ -403,14 +429,14 @@ export async function generateATSSafePDF(
                 const cgpa = edu.cgpa_percentage || edu.cgpa || edu.gpa || edu.score;
 
                 return (
-                  <View key={idx} style={styles.subsection}>
+                  <View key={idx} style={{ marginBottom: 14 }}>
                     <View style={styles.compactRow}>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.title}>
                           {degree || ''} {institution ? `- ${institution}` : ''}
                         </Text>
                         {field && (
-                          <Text style={[styles.subtitle, { marginTop: 1, marginBottom: 0 }]}>{field}</Text>
+                          <Text style={[styles.subtitle, { marginTop: 2, marginBottom: 1 }]}>{field}</Text>
                         )}
                         {cgpa && (
                           <Text style={[styles.subtitle, { marginTop: 1, marginBottom: 0 }]}>CGPA: {cgpa}</Text>
@@ -439,7 +465,7 @@ export async function generateATSSafePDF(
               const skillsArray = Array.isArray(skillList) ? skillList : [];
               if (skillsArray.length === 0) return null;
               return (
-                <View key={category} style={{ marginBottom: 5 }}>
+                <View key={category} style={{ marginBottom: 6 }}>
                   <Text style={styles.skillCategory}>{category.charAt(0).toUpperCase() + category.slice(1)}: </Text>
                   <Text style={styles.skillItems}>{skillsArray.join(', ')}</Text>
                 </View>
@@ -452,9 +478,9 @@ export async function generateATSSafePDF(
         {projects && projects.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>PROJECTS</Text>
-            {projects.map((project: any, idx: number) => ( // Use ALL projects from data
-              <View key={idx} style={styles.subsection}>
-                <View style={{ marginBottom: 3 }}>
+            {projects.map((project: any, idx: number) => ( // Use top 3 projects (ResumeItNow best practice)
+              <View key={idx} style={{ marginBottom: 18 }}> {/* More spacing between projects */}
+                <View style={{ marginBottom: 6 }}>
                   {project.url ? (
                     <Link
                       src={
@@ -473,20 +499,41 @@ export async function generateATSSafePDF(
                   )}
                 </View>
                 {project.description && (
-                  <Text style={{ marginTop: 3, marginBottom: 3, fontSize: 10, lineHeight: 1.35, paddingLeft: 0 }}>
-                    {project.description.length > 200 ? project.description.substring(0, 200) + '...' : project.description}
+                  <Text style={{ 
+                    marginTop: 8, 
+                    marginBottom: 10, 
+                    fontSize: 10, 
+                    lineHeight: 1.6, 
+                    paddingLeft: 0,
+                    textAlign: 'justify' as any,
+                    color: templateConfig?.colorScheme?.secondary || '#333333'
+                  }}>
+                    {/* Clean bullet points and normalize whitespace (same as preview) */}
+                    {project.description
+                      .replace(/^[-•*]\s+/gm, '')
+                      .replace(/\n+/g, ' ')
+                      .replace(/\s+/g, ' ')
+                      .trim()}
                   </Text>
                 )}
                 {project.technologies_used && project.technologies_used.length > 0 && (
-                  <Text style={[styles.subtitle, { marginTop: 2, marginBottom: 2, fontSize: 10 }]}>
-                    Technologies: {Array.isArray(project.technologies_used)
-                      ? project.technologies_used.join(', ') // Use ALL technologies
+                  <Text style={{ 
+                    fontSize: 9.5, 
+                    color: templateConfig?.colorScheme?.secondary || '#333333',
+                    fontStyle: 'italic',
+                    marginTop: 6,
+                    marginBottom: 2
+                  }}>
+                    <Text style={{ fontWeight: 'bold' }}>Tech Stack:</Text> {Array.isArray(project.technologies_used)
+                      ? project.technologies_used.join(' • ') // Match preview: use bullet separator
                       : project.technologies_used}
                   </Text>
                 )}
-                {project.contributions && project.contributions.length > 0 && (
+                {/* Hide contributions if description is AI-enhanced (3 sentences) - same as preview */}
+                {project.contributions && project.contributions.length > 0 && 
+                 (!project.description || project.description.split('.').filter((s: string) => s.trim().length > 10).length < 3) && (
                   <View style={{ marginTop: 3 }}>
-                    {project.contributions.map((contribution: string, cIdx: number) => ( // Use ALL contribution bullets
+                    {project.contributions.map((contribution: string, cIdx: number) => (
                       <Text key={cIdx} style={{ fontSize: 10, marginBottom: 2, marginLeft: 18, lineHeight: 1.35 }}>
                         • {contribution}
                       </Text>
@@ -552,7 +599,7 @@ export async function generateATSSafePDF(
                 }
                 
                 return (
-                  <Text key={idx} style={{ fontSize: 9, marginBottom: 1, marginLeft: 16, lineHeight: 1.25 }}>
+                  <Text key={idx} style={{ fontSize: 9, marginBottom: 3, marginLeft: 16, lineHeight: 1.5 }}>
                     • {achievementText}
                   </Text>
                 );

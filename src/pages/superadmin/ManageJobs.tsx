@@ -25,6 +25,7 @@ interface Job {
   eligibility_type: "all_students" | "branch" | "specific_students";
   eligible_branches: string[] | null;
   eligible_user_ids: number[] | null;
+  eligible_years: string[] | null;
   job_type: "On-Campus" | "Off-Campus" | "Internship";
   requirements: string[] | null;
   rounds: string[] | null;
@@ -60,6 +61,7 @@ export default function ManageJobs() {
     eligibility_type: "all_students" as "all_students" | "branch" | "specific_students",
     eligible_branches: [] as string[],
     eligible_user_ids: [] as number[],
+    eligible_years: [] as string[],
     job_type: "On-Campus" as "On-Campus" | "Off-Campus" | "Internship",
     requirements: [] as string[],
     rounds: [] as string[],
@@ -141,6 +143,7 @@ export default function ManageJobs() {
         eligibility_type: formData.eligibility_type,
         eligible_branches: formData.eligibility_type === "branch" ? formData.eligible_branches : undefined,
         eligible_user_ids: formData.eligibility_type === "specific_students" ? formData.eligible_user_ids : undefined,
+        eligible_years: formData.eligible_years.length > 0 ? formData.eligible_years : undefined,
         job_type: formData.job_type,
         requirements: formData.requirements.length > 0 ? formData.requirements : undefined,
         rounds: formData.rounds.length > 0 ? formData.rounds : undefined,
@@ -184,6 +187,7 @@ export default function ManageJobs() {
       eligibility_type: job.eligibility_type,
       eligible_branches: job.eligible_branches || [],
       eligible_user_ids: job.eligible_user_ids || [],
+      eligible_years: job.eligible_years || [],
       job_type: job.job_type,
       requirements: job.requirements || [],
       rounds: job.rounds || [],
@@ -222,6 +226,7 @@ export default function ManageJobs() {
       eligibility_type: "all_students",
       eligible_branches: [],
       eligible_user_ids: [],
+      eligible_years: [],
       job_type: "On-Campus",
       requirements: [],
       rounds: [],
@@ -320,13 +325,21 @@ export default function ManageJobs() {
 
 
   const getEligibilityDisplay = (job: Job) => {
+    let display = "";
     if (job.eligibility_type === "all_students") {
-      return "All Students";
+      display = "All Students";
     } else if (job.eligibility_type === "branch") {
-      return `Branches: ${job.eligible_branches?.join(", ") || "N/A"}`;
+      display = `Branches: ${job.eligible_branches?.join(", ") || "N/A"}`;
     } else {
-      return `${job.eligible_user_ids?.length || 0} Specific Students`;
+      display = `${job.eligible_user_ids?.length || 0} Specific Students`;
     }
+    
+    // Add year filter if applicable
+    if (job.eligible_years && job.eligible_years.length > 0) {
+      display += ` | Years: ${job.eligible_years.join(", ")}`;
+    }
+    
+    return display;
   };
 
   const handleSelectAll = (checked: boolean) => {
@@ -638,6 +651,45 @@ export default function ManageJobs() {
                       )}
                     </div>
                   )}
+
+                  {/* Year Filter - Independent of eligibility type */}
+                  <div className="space-y-2">
+                    <Label>Eligible Years (Optional)</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Select which years can see this job. Leave empty to show to all years.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {["1st", "2nd", "3rd", "4th", "5th"].map((year) => (
+                        <div key={year} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`year-${year}`}
+                            checked={formData.eligible_years.includes(year)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setFormData({
+                                  ...formData,
+                                  eligible_years: [...formData.eligible_years, year],
+                                });
+                              } else {
+                                setFormData({
+                                  ...formData,
+                                  eligible_years: formData.eligible_years.filter((y) => y !== year),
+                                });
+                              }
+                            }}
+                          />
+                          <Label htmlFor={`year-${year}`} className="cursor-pointer">
+                            {year}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                    {formData.eligible_years.length > 0 && (
+                      <div className="text-sm text-muted-foreground">
+                        Selected: {formData.eligible_years.join(", ")}
+                      </div>
+                    )}
+                  </div>
 
                   {formData.eligibility_type === "specific_students" && (
                     <div>

@@ -32,7 +32,7 @@ services:
     environment:
       DATABASE_URL: postgresql://elevate_user:${POSTGRES_PASSWORD}@postgres:5432/elevate_edu
       SECRET_KEY: ${SECRET_KEY}
-      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://72.60.101.14,http://72.60.101.14:80,http://srv1159261.hstgr.cloud,http://srv1159261.hstgr.cloud:80}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-https://svnaprojob.online,http://svnaprojob.online,https://www.svnaprojob.online,http://www.svnaprojob.online,http://72.60.101.14,http://72.60.101.14:80}
       DEBUG: "False"
     ports:
       - "8000:8000"

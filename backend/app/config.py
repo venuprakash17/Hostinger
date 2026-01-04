@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     
     # CORS - Add production domains here
-    BACKEND_CORS_ORIGINS: str = "http://localhost:8080,http://localhost:8081,http://localhost:5173,http://127.0.0.1:8080,http://127.0.0.1:8081,http://127.0.0.1:5173,http://72.60.101.14,http://72.60.101.14:80,http://72.60.101.14:8080,http://srv1159261.hstgr.cloud,http://srv1159261.hstgr.cloud:80,http://srv1159261.hstgr.cloud:8080"
+    BACKEND_CORS_ORIGINS: str = "http://localhost:8080,http://localhost:8081,http://localhost:5173,http://127.0.0.1:8080,http://127.0.0.1:8081,http://127.0.0.1:5173,https://svnaprojob.online,http://svnaprojob.online,https://www.svnaprojob.online,http://www.svnaprojob.online,http://72.60.101.14,http://72.60.101.14:80,http://72.60.101.14:8080"
     
     # Debug mode
     DEBUG: bool = True  # Set to False in production
@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
+    
+    # AI Services (Optional)
+    OPENAI_API_KEY: str = ""  # Optional - for resume optimization and AI interview fallback
+    OLLAMA_BASE_URL: str = "http://localhost:11434"  # FREE - for AI services
+    OLLAMA_MODEL: str = "llama3.1:8b"  # FREE - Ollama model to use
     
     class Config:
         env_file = ".env"

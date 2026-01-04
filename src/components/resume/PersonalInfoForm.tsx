@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StudentProfile } from "@/hooks/useStudentProfile";
 import { resumeStorage } from "@/lib/resumeStorage";
 import { useToast } from "@/hooks/use-toast";
+import { FileText } from "lucide-react";
 
 interface PersonalInfoFormProps {
   initialData?: StudentProfile;
@@ -52,9 +53,17 @@ export function PersonalInfoForm({ initialData, onSave, isSaving }: PersonalInfo
   }, [formValues]);
 
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Personal Information</CardTitle>
+      <Card className="border-2 shadow-md hover:shadow-lg transition-shadow duration-300">
+        <CardHeader className="bg-gradient-to-r from-primary/5 to-primary/10 border-b">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-primary/20 rounded-lg">
+              <FileText className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-xl font-bold">Personal Information</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">Your contact details and basic information</p>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit((data) => {

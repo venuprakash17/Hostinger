@@ -1,9 +1,10 @@
 /**
  * Canva-Style Customization Panel
  * Comprehensive customization options while maintaining ATS compliance
+ * Real-time updates with performance optimizations
  */
 
-import React from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -114,7 +115,8 @@ const ATS_SAFE_COLORS = [
 ];
 
 export function CustomizationPanel({ settings, onSettingsChange }: CustomizationPanelProps) {
-  const updateSetting = <K extends keyof CustomizationSettings>(
+  // Memoize update function to prevent unnecessary re-renders
+  const updateSetting = useCallback(<K extends keyof CustomizationSettings>(
     key: K,
     value: CustomizationSettings[K]
   ) => {
@@ -122,24 +124,30 @@ export function CustomizationPanel({ settings, onSettingsChange }: Customization
       ...settings,
       [key]: value,
     });
-  };
+  }, [settings, onSettingsChange]);
 
-  const toggleSection = (section: keyof CustomizationSettings['visibleSections']) => {
+  const toggleSection = useCallback((section: keyof CustomizationSettings['visibleSections']) => {
     updateSetting('visibleSections', {
       ...settings.visibleSections,
       [section]: !settings.visibleSections[section],
     });
-  };
+  }, [settings.visibleSections, updateSetting]);
 
-  const applyColorScheme = (scheme: typeof ATS_SAFE_COLORS[number]) => {
+  const applyColorScheme = useCallback((scheme: typeof ATS_SAFE_COLORS[number]) => {
     updateSetting('primaryColor', scheme.primary);
     updateSetting('secondaryColor', scheme.secondary);
     updateSetting('accentColor', scheme.accent);
-  };
+  }, [updateSetting]);
 
-  const resetToDefaults = () => {
+  const resetToDefaults = useCallback(() => {
     onSettingsChange(DEFAULT_SETTINGS);
-  };
+  }, [onSettingsChange]);
+
+  // Memoize slider handlers for better performance
+  const handleSliderChange = useCallback((key: keyof CustomizationSettings, value: number | number[]) => {
+    const numValue = Array.isArray(value) ? value[0] : value;
+    updateSetting(key, numValue as any);
+  }, [updateSetting]);
 
   return (
     <div className="space-y-4">
@@ -157,8 +165,13 @@ export function CustomizationPanel({ settings, onSettingsChange }: Customization
         <Button
           variant="ghost"
           size="sm"
-          onClick={resetToDefaults}
-          className="h-7 text-xs"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            resetToDefaults();
+          }}
+          className="h-7 text-xs hover:bg-destructive/10 hover:text-destructive transition-colors"
+          type="button"
         >
           <RotateCcw className="h-3 w-3 mr-1" />
           Reset
@@ -229,7 +242,7 @@ export function CustomizationPanel({ settings, onSettingsChange }: Customization
               </Label>
               <Slider
                 value={[settings.baseFontSize]}
-                onValueChange={([value]) => updateSetting('baseFontSize', value)}
+                onValueChange={(value) => handleSliderChange('baseFontSize', value)}
                 min={9}
                 max={12}
                 step={0.5}
@@ -247,7 +260,7 @@ export function CustomizationPanel({ settings, onSettingsChange }: Customization
               </Label>
               <Slider
                 value={[settings.headingFontSize]}
-                onValueChange={([value]) => updateSetting('headingFontSize', value)}
+                onValueChange={(value) => handleSliderChange('headingFontSize', value)}
                 min={14}
                 max={24}
                 step={1}
@@ -265,7 +278,7 @@ export function CustomizationPanel({ settings, onSettingsChange }: Customization
               </Label>
               <Slider
                 value={[settings.sectionTitleFontSize]}
-                onValueChange={([value]) => updateSetting('sectionTitleFontSize', value)}
+                onValueChange={(value) => handleSliderChange('sectionTitleFontSize', value)}
                 min={10}
                 max={14}
                 step={0.5}
@@ -284,10 +297,16 @@ export function CustomizationPanel({ settings, onSettingsChange }: Customization
                 {ATS_SAFE_COLORS.map((scheme) => (
                   <Card
                     key={scheme.name}
-                    className={`cursor-pointer transition-all hover:ring-2 hover:ring-primary ${
-                      settings.primaryColor === scheme.primary ? 'ring-2 ring-primary' : ''
+                    className={`cursor-pointer transition-all duration-200 hover:ring-2 hover:ring-primary hover:scale-105 active:scale-95 ${
+                      settings.primaryColor === scheme.primary ? 'ring-2 ring-primary shadow-md' : ''
                     }`}
-                    onClick={() => applyColorScheme(scheme)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      applyColorScheme(scheme);
+                    }}
+                    onMouseDown={(e) => e.preventDefault()}
+                    type="button"
                   >
                     <CardContent className="p-3">
                       <div className="flex items-center gap-2 mb-2">
@@ -360,7 +379,7 @@ export function CustomizationPanel({ settings, onSettingsChange }: Customization
               </Label>
               <Slider
                 value={[settings.lineHeight]}
-                onValueChange={([value]) => updateSetting('lineHeight', value)}
+                onValueChange={(value) => handleSliderChange('lineHeight', value)}
                 min={1.2}
                 max={1.6}
                 step={0.05}
@@ -378,7 +397,7 @@ export function CustomizationPanel({ settings, onSettingsChange }: Customization
               </Label>
               <Slider
                 value={[settings.sectionSpacing]}
-                onValueChange={([value]) => updateSetting('sectionSpacing', value)}
+                onValueChange={(value) => handleSliderChange('sectionSpacing', value)}
                 min={8}
                 max={16}
                 step={1}
@@ -392,7 +411,7 @@ export function CustomizationPanel({ settings, onSettingsChange }: Customization
               </Label>
               <Slider
                 value={[settings.paragraphSpacing]}
-                onValueChange={([value]) => updateSetting('paragraphSpacing', value)}
+                onValueChange={(value) => handleSliderChange('paragraphSpacing', value)}
                 min={4}
                 max={12}
                 step={1}
@@ -406,7 +425,7 @@ export function CustomizationPanel({ settings, onSettingsChange }: Customization
               </Label>
               <Slider
                 value={[settings.marginPadding]}
-                onValueChange={([value]) => updateSetting('marginPadding', value)}
+                onValueChange={(value) => handleSliderChange('marginPadding', value)}
                 min={0.5}
                 max={1.0}
                 step={0.05}
@@ -463,7 +482,11 @@ export function CustomizationPanel({ settings, onSettingsChange }: Customization
                 {Object.entries(settings.visibleSections).map(([section, visible]) => (
                   <div
                     key={section}
-                    className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors"
+                    className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-all duration-150 cursor-pointer active:scale-[0.98]"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      toggleSection(section as keyof CustomizationSettings['visibleSections']);
+                    }}
                   >
                     <Label
                       htmlFor={`section-${section}`}
@@ -480,7 +503,13 @@ export function CustomizationPanel({ settings, onSettingsChange }: Customization
                       <Switch
                         id={`section-${section}`}
                         checked={visible}
-                        onCheckedChange={() => toggleSection(section as keyof CustomizationSettings['visibleSections'])}
+                        onCheckedChange={(checked) => {
+                          // Prevent double-triggering from parent onClick
+                          if (checked !== visible) {
+                            toggleSection(section as keyof CustomizationSettings['visibleSections']);
+                          }
+                        }}
+                        onClick={(e) => e.stopPropagation()}
                       />
                     </div>
                   </div>

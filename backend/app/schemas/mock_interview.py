@@ -10,7 +10,8 @@ class MockInterviewBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     interview_type: InterviewType = InterviewType.MOCK
     description: Optional[str] = None
-    student_id: int
+    student_id: Optional[int] = None  # Optional for backward compatibility, use student_ids for multiple students
+    student_ids: Optional[List[int]] = None  # List of student IDs for group discussions
     interviewer_id: Optional[int] = None
     interviewer_name: Optional[str] = Field(None, max_length=255)
     scheduled_at: datetime
@@ -67,6 +68,7 @@ class MockInterviewResponse(MockInterviewBase):
     completed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
+    students: Optional[List[dict]] = None  # List of student info (id, email, full_name)
     
     class Config:
         from_attributes = True

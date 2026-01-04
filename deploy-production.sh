@@ -1,92 +1,128 @@
 #!/bin/bash
 
-# Production Deployment Script
-# This script builds and deploys both frontend and backend to the VPS server
+# Production Deployment Script for svnaprojob.online
+# This script builds and deploys the application to production
 
 set -e  # Exit on any error
 
-echo "🚀 Starting Production Deployment..."
-echo "=================================="
-
-# Configuration
-SERVER="root@72.60.101.14"
-SERVER_PATH="/root/elevate-edu"
-API_URL="http://72.60.101.14:8000/api/v1"
+echo "🚀 Starting Production Deployment for svnaprojob.online"
+echo "=================================================="
+echo ""
 
 # Colors for output
+RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# Step 1: Build Frontend
-echo -e "${YELLOW}📦 Step 1: Building frontend with production API URL...${NC}"
-export VITE_API_BASE_URL=$API_URL
+# Configuration
+DOMAIN="svnaprojob.online"
+SERVER_USER="root"
+SERVER_HOST="72.60.101.14"  # Update with your actual server IP
+SERVER_PATH="/root/elevate-edu"
+FRONTEND_PATH="/var/www/elevate-edu-ui"
+
+# Check if we're in the right directory
+if [ ! -f "package.json" ]; then
+    echo -e "${RED}❌ Error: package.json not found. Please run this script from the project root.${NC}"
+    exit 1
+fi
+
+echo -e "${YELLOW}📦 Step 1: Installing/Updating Dependencies${NC}"
+if [ ! -d "node_modules" ]; then
+    npm install
+else
+    npm install --prefer-offline
+fi
+
+echo -e "${YELLOW}🔨 Step 2: Building Frontend for Production${NC}"
+# Set production environment variables
+export VITE_API_BASE_URL="https://${DOMAIN}/api/v1"
+export VITE_WS_BASE_URL="wss://${DOMAIN}"
+export NODE_ENV=production
+
+# Build the frontend
 npm run build
 
-if [ $? -ne 0 ]; then
-    echo -e "${RED}❌ Frontend build failed!${NC}"
+# Check if build was successful
+if [ ! -d "dist" ]; then
+    echo -e "${RED}❌ Build failed! dist folder not found.${NC}"
     exit 1
 fi
-echo -e "${GREEN}✅ Frontend build successful${NC}"
 
-# Step 2: Deploy Frontend
-echo -e "${YELLOW}📤 Step 2: Deploying frontend to server...${NC}"
-scp -r dist/* $SERVER:$SERVER_PATH/dist/
+echo -e "${GREEN}✅ Frontend build successful!${NC}"
+echo ""
 
-if [ $? -ne 0 ]; then
-    echo -e "${RED}❌ Frontend deployment failed!${NC}"
-    exit 1
-fi
-echo -e "${GREEN}✅ Frontend deployed${NC}"
+echo -e "${YELLOW}📤 Step 3: Uploading Files to Server${NC}"
 
-# Step 3: Deploy Backend
-echo -e "${YELLOW}📤 Step 3: Deploying backend to server...${NC}"
-scp -r backend/* $SERVER:$SERVER_PATH/backend/
+# Create backup of current deployment
+echo "Creating backup..."
+ssh ${SERVER_USER}@${SERVER_HOST} "cd ${SERVER_PATH} && [ -d dist ] && cp -r dist dist.backup.$(date +%Y%m%d_%H%M%S) || true"
 
-if [ $? -ne 0 ]; then
-    echo -e "${RED}❌ Backend deployment failed!${NC}"
-    exit 1
-fi
-echo -e "${GREEN}✅ Backend deployed${NC}"
+# Upload frontend
+echo "Uploading frontend files..."
+rsync -avz --delete dist/ ${SERVER_USER}@${SERVER_HOST}:${FRONTEND_PATH}/dist/
 
-# Step 4: Restart Services
-echo -e "${YELLOW}🔄 Step 4: Restarting Docker containers on server...${NC}"
-ssh $SERVER "cd $SERVER_PATH && docker-compose up -d --build"
+# Upload backend
+echo "Uploading backend files..."
+rsync -avz --exclude 'venv' --exclude '__pycache__' --exclude '*.pyc' --exclude '.env' backend/ ${SERVER_USER}@${SERVER_HOST}:${SERVER_PATH}/backend/
 
-if [ $? -ne 0 ]; then
-    echo -e "${RED}❌ Docker restart failed!${NC}"
-    exit 1
-fi
-echo -e "${GREEN}✅ Docker containers restarted${NC}"
+echo -e "${GREEN}✅ Files uploaded successfully!${NC}"
+echo ""
 
-# Step 5: Wait for services to be ready
-echo -e "${YELLOW}⏳ Step 5: Waiting for services to be ready...${NC}"
-sleep 10
+echo -e "${YELLOW}🔧 Step 4: Setting Up Backend on Server${NC}"
 
-# Step 6: Health Check
-echo -e "${YELLOW}🏥 Step 6: Running health check...${NC}"
-HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://72.60.101.14:8000/health || echo "000")
+# SSH into server and restart services
+ssh ${SERVER_USER}@${SERVER_HOST} << 'ENDSSH'
+    cd /root/elevate-edu
+    
+    # Update backend environment if needed
+    if [ -f backend/.env.production ]; then
+        echo "Updating backend .env from .env.production..."
+        cp backend/.env.production backend/.env
+    fi
+    
+    # Restart backend service
+    echo "Restarting backend service..."
+    if command -v docker-compose &> /dev/null; then
+        docker-compose restart backend || docker-compose up -d --build backend
+    elif command -v docker &> /dev/null && [ -f docker-compose.yml ]; then
+        docker compose restart backend || docker compose up -d --build backend
+    else
+        # If using systemd service
+        systemctl restart elevate-edu-backend || true
+    fi
+    
+    # Reload nginx
+    echo "Reloading nginx..."
+    nginx -t && systemctl reload nginx || systemctl restart nginx
+    
+    echo "✅ Server setup complete!"
+ENDSSH
 
-if [ "$HEALTH_CHECK" = "200" ]; then
-    echo -e "${GREEN}✅ Backend health check passed${NC}"
+echo ""
+echo -e "${YELLOW}🧪 Step 5: Verifying Deployment${NC}"
+
+# Wait a few seconds for services to start
+sleep 5
+
+# Check if the site is accessible
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://${DOMAIN} || echo "000")
+
+if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "301" ] || [ "$HTTP_CODE" = "302" ]; then
+    echo -e "${GREEN}✅ Deployment successful!${NC}"
+    echo ""
+    echo "🌐 Your application is live at:"
+    echo "   https://${DOMAIN}"
+    echo ""
+    echo "📋 Next steps:"
+    echo "   1. Verify SSL certificate is installed (Let's Encrypt)"
+    echo "   2. Test all major features"
+    echo "   3. Monitor logs: ssh ${SERVER_USER}@${SERVER_HOST} 'docker-compose logs -f backend'"
 else
-    echo -e "${YELLOW}⚠️  Backend health check returned: $HEALTH_CHECK${NC}"
-    echo -e "${YELLOW}   This might be normal if the server is still starting up${NC}"
+    echo -e "${YELLOW}⚠️  Site returned HTTP ${HTTP_CODE}. Please verify manually.${NC}"
+    echo "   Check: https://${DOMAIN}"
 fi
 
 echo ""
-echo -e "${GREEN}=================================="
-echo -e "✅ Deployment Complete!"
-echo -e "==================================${NC}"
-echo ""
-echo "🌐 Frontend: http://72.60.101.14"
-echo "🔧 Backend API: http://72.60.101.14:8000/api/v1"
-echo "📚 API Docs: http://72.60.101.14:8000/api/docs"
-echo ""
-echo "📝 Next Steps:"
-echo "   1. Check Docker logs: ssh $SERVER 'cd $SERVER_PATH && docker-compose logs -f'"
-echo "   2. Test the application in your browser"
-echo "   3. Monitor for any errors in the browser console"
-echo ""
-
+echo -e "${GREEN}🎉 Deployment process completed!${NC}"

@@ -12,7 +12,6 @@ from app.config import get_settings
 from app.models.job import Job, JobApplication
 from app.models.user import User, UserRole, RoleEnum
 from app.models.profile import Profile
-from app.models.job_aggregation import JobAggregation
 from app.schemas.job import (
     JobCreate, JobUpdate, JobResponse,
     JobApplicationCreate, JobApplicationUpdate, JobApplicationResponse
@@ -61,14 +60,14 @@ def get_current_admin(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> User:
-    """Verify user is admin"""
+    """Verify user is admin or super admin"""
     user_roles = db.query(UserRole).filter(UserRole.user_id == current_user.id).all()
     role_names = [role.role for role in user_roles]
     
-    if RoleEnum.ADMIN not in role_names:
+    if RoleEnum.ADMIN not in role_names and RoleEnum.SUPER_ADMIN not in role_names:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only college admins can perform this action"
+            detail="Only college admins or super admins can perform this action"
         )
     
     return current_user
@@ -125,31 +124,17 @@ async def create_job(
     db.add(new_job)
     db.flush()
     
-    # If super admin created the job, also add it to job aggregation table
-    if RoleEnum.SUPER_ADMIN in role_names:
-        try:
-            aggregation = JobAggregation(
-                source="manual",
-                external_id=f"job_{new_job.id}",
-                title=new_job.title,
-                company=new_job.company,
-                role=new_job.role,
-                description=new_job.description,
-                location=new_job.location,
-                ctc=new_job.ctc,
-                job_type=new_job.job_type or "On-Campus",
-                posted_date=datetime.utcnow(),
-                is_active=True,
-                is_imported=True,  # Mark as imported since it's already in jobs table
-                college_id=None,  # Global job
-                last_synced_at=datetime.utcnow()
-            )
-            db.add(aggregation)
-        except Exception as agg_error:
-            # Don't fail the job creation if aggregation fails
-            import traceback
-            print(f"Warning: Failed to create aggregation entry: {agg_error}")
-            print(traceback.format_exc())
+    # Automatically create Round 0 (Step 0) for tracking all applicants
+    # This is the default round where all students who applied are added
+    from app.models.job_round import JobRound
+    round_0 = JobRound(
+        job_id=new_job.id,
+        name="Applied",
+        order=0,
+        description="Default round for tracking all students who applied for this job",
+        is_active=True
+    )
+    db.add(round_0)
     
     db.commit()
     db.refresh(new_job)
@@ -207,8 +192,22 @@ async def list_jobs(
             # If roles query fails, treat as regular user
             role_names = []
         
-        if RoleEnum.ADMIN in role_names or RoleEnum.SUPER_ADMIN in role_names:
-            # Admins see all jobs - no filtering needed
+        if RoleEnum.SUPER_ADMIN in role_names:
+            # Super Admin sees all jobs - no filtering needed
+            jobs = query.order_by(Job.posted_date.desc()).offset(skip).limit(limit).all()
+            return jobs
+        elif RoleEnum.ADMIN in role_names:
+            # College Admin: Only see jobs from their college (exclude Super Admin jobs with college_id = NULL)
+            admin_role = db.query(UserRole).filter(
+                UserRole.user_id == current_user.id,
+                UserRole.role == RoleEnum.ADMIN
+            ).first()
+            if admin_role and admin_role.college_id:
+                # Only show jobs where college_id matches admin's college
+                query = query.filter(Job.college_id == admin_role.college_id)
+            else:
+                # Admin without college_id - return empty (shouldn't happen but safe fallback)
+                return []
             jobs = query.order_by(Job.posted_date.desc()).offset(skip).limit(limit).all()
             return jobs
         else:
@@ -220,23 +219,112 @@ async def list_jobs(
             for job in all_jobs:
                 is_eligible = False
                 
-                # All students can see jobs with eligibility_type = "all_students"
-                if job.eligibility_type == "all_students":
+                # Default to "all_students" if eligibility_type is None or empty
+                eligibility_type = job.eligibility_type or "all_students"
+                
+                # All students can see jobs with eligibility_type = "all_students" or None
+                if eligibility_type == "all_students" or not job.eligibility_type:
                     is_eligible = True
-                elif job.eligibility_type == "branch" and user_profile:
+                elif eligibility_type == "branch" and user_profile:
                     # Check if user's department matches eligible branches
-                    if job.eligible_branches and user_profile.department:
-                        is_eligible = user_profile.department in job.eligible_branches
-                elif job.eligibility_type == "specific_students":
+                    if job.eligible_branches:
+                        # Get department name and code from profile or department relationship
+                        user_department_name = None
+                        user_department_code = None
+                        
+                        if user_profile.department:
+                            user_department_name = user_profile.department.strip()
+                        
+                        if user_profile.department_id:
+                            # Get department name and code from department_id
+                            from app.models.academic import Department
+                            dept_obj = db.query(Department).filter(Department.id == user_profile.department_id).first()
+                            if dept_obj:
+                                if dept_obj.name:
+                                    user_department_name = dept_obj.name.strip()
+                                if dept_obj.code:
+                                    user_department_code = dept_obj.code.strip()
+                        
+                        if user_department_name or user_department_code:
+                            # Normalize for case-insensitive comparison
+                            user_dept_name_normalized = user_department_name.upper().strip() if user_department_name else None
+                            user_dept_code_normalized = user_department_code.upper().strip() if user_department_code else None
+                            
+                            # Check if any eligible branch matches (case-insensitive)
+                            # eligible_branches can be a list or a single value
+                            eligible_branches_list = job.eligible_branches if isinstance(job.eligible_branches, list) else [job.eligible_branches]
+                            
+                            # Debug logging (can be removed in production)
+                            import logging
+                            logger = logging.getLogger(__name__)
+                            logger.debug(f"Job {job.id}: Checking eligibility - user_dept_name={user_department_name}, user_dept_code={user_department_code}, eligible_branches={eligible_branches_list}")
+                            
+                            for branch in eligible_branches_list:
+                                if branch is None:
+                                    continue
+                                branch_normalized = str(branch).upper().strip()
+                                
+                                # Match against both department name and code
+                                if user_dept_name_normalized and user_dept_name_normalized == branch_normalized:
+                                    is_eligible = True
+                                    logger.debug(f"Job {job.id}: Matched by department name: {user_dept_name_normalized} == {branch_normalized}")
+                                    break
+                                if user_dept_code_normalized and user_dept_code_normalized == branch_normalized:
+                                    is_eligible = True
+                                    logger.debug(f"Job {job.id}: Matched by department code: {user_dept_code_normalized} == {branch_normalized}")
+                                    break
+                            
+                            if not is_eligible:
+                                logger.debug(f"Job {job.id}: Not eligible - no match found for user department")
+                elif eligibility_type == "specific_students":
                     # Check if user ID is in eligible_user_ids
                     if job.eligible_user_ids and current_user.id in job.eligible_user_ids:
                         is_eligible = True
+                
+                # Additional filter: Check year eligibility if eligible_years is specified
+                if is_eligible and job.eligible_years and user_profile:
+                    # Job has year restrictions - check if student's year matches
+                    user_year = user_profile.present_year
+                    if user_year:
+                        # Normalize year for comparison (handle "1st", "1", etc.)
+                        from app.core.year_utils import parse_year, format_year
+                        user_year_normalized = parse_year(user_year)  # Convert to numeric
+                        user_year_formatted = format_year(user_year_normalized) if user_year_normalized else None
+                        
+                        # eligible_years can be a list or a single value
+                        eligible_years_list = job.eligible_years if isinstance(job.eligible_years, list) else [job.eligible_years]
+                        
+                        year_match = False
+                        for eligible_year in eligible_years_list:
+                            if eligible_year is None:
+                                continue
+                            # Normalize eligible year
+                            eligible_year_normalized = parse_year(str(eligible_year))
+                            eligible_year_formatted = format_year(eligible_year_normalized) if eligible_year_normalized else None
+                            
+                            # Match if normalized years match OR formatted years match
+                            if (user_year_normalized and eligible_year_normalized and 
+                                user_year_normalized == eligible_year_normalized):
+                                year_match = True
+                                break
+                            if (user_year_formatted and eligible_year_formatted and 
+                                user_year_formatted.upper() == eligible_year_formatted.upper()):
+                                year_match = True
+                                break
+                            # Also check direct string match (case-insensitive)
+                            if str(user_year).upper().strip() == str(eligible_year).upper().strip():
+                                year_match = True
+                                break
+                        
+                        # If job has year restrictions, student must match
+                        if not year_match:
+                            is_eligible = False
                 
                 if is_eligible:
                     eligible_jobs.append(job)
             
             # Return only eligible jobs for students (sorted by posted_date)
-            eligible_jobs.sort(key=lambda j: j.posted_date, reverse=True)
+            eligible_jobs.sort(key=lambda j: j.posted_date if j.posted_date else j.id, reverse=True)
             return eligible_jobs[skip:skip+limit]
     
     # For non-logged-in users, return all active jobs
@@ -246,10 +334,10 @@ async def list_jobs(
 
 @router.get("/template")
 async def download_job_template(
-    current_user: User = Depends(get_current_super_admin),
+    current_user: User = Depends(get_current_admin_or_faculty),
     db: Session = Depends(get_db)
 ):
-    """Download Excel template for job bulk upload (Super Admin only)"""
+    """Download Excel template for job bulk upload (Admin, Faculty, and Super Admin)"""
     from fastapi.responses import StreamingResponse
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -262,7 +350,7 @@ async def download_job_template(
     # Headers with better organization - job_id is first for easy reference
     headers = [
         "job_id", "title", "company", "role", "description", "location", "ctc",
-        "job_type", "eligibility_type", "eligible_branches", "eligible_user_ids",
+        "job_type", "eligibility_type", "eligible_branches", "eligible_years",
         "requirements", "rounds", "deadline", "apply_link", "is_active"
     ]
     ws.append(headers)
@@ -291,78 +379,78 @@ async def download_job_template(
         # Example 1: All students eligible (new job - no job_id)
         [
             "",  # job_id - empty means create new job
-            "Software Engineer",
-            "Google",
-            "Software Engineer",
-            "Looking for experienced software engineer with 2-5 years of experience in web development. Must have strong problem-solving skills.",
-            "Hyderabad",
-            "₹15 LPA",
-            "On-Campus",
-            "all_students",
-            "",
-            "",
-            "Bachelor's degree in Computer Science;2-5 years experience;Strong problem-solving skills",
-            "Online Test;Technical Interview;HR Round",
-            "2024-12-31",
-            "https://careers.google.com/jobs/apply",
-            "true"
+            "Software Engineer",  # title
+            "Google",  # company
+            "Software Engineer",  # role
+            "Looking for experienced software engineer with 2-5 years of experience in web development. Must have strong problem-solving skills.",  # description
+            "Hyderabad",  # location
+            "₹15 LPA",  # ctc
+            "On-Campus",  # job_type
+            "all_students",  # eligibility_type
+            "",  # eligible_branches - empty means all branches
+            "",  # eligible_years - empty means all years
+            "Bachelor's degree in Computer Science;2-5 years experience;Strong problem-solving skills",  # requirements
+            "Online Test;Technical Interview;HR Round",  # rounds
+            "2024-12-31",  # deadline
+            "https://careers.google.com/jobs/apply",  # apply_link
+            "true"  # is_active
         ],
         # Example 2: Branch-specific (update existing job - with job_id)
         [
             "1",  # job_id - if provided, will update existing job with this ID
-            "Data Scientist",
-            "Microsoft",
-            "Data Scientist",
-            "Looking for data scientist with ML experience. Must have knowledge of Python, TensorFlow, and data analysis.",
-            "Bangalore",
-            "₹20 LPA",
-            "Off-Campus",
-            "branch",
-            "CSE,ECE,IT",
-            "",
-            "Master's degree in Data Science or related field;ML experience;Python and TensorFlow knowledge",
-            "Technical Round;Managerial Round;Final HR Round",
-            "2024-11-30",
-            "",
-            "true"
+            "Data Scientist",  # title
+            "Microsoft",  # company
+            "Data Scientist",  # role
+            "Looking for data scientist with ML experience. Must have knowledge of Python, TensorFlow, and data analysis.",  # description
+            "Bangalore",  # location
+            "₹20 LPA",  # ctc
+            "Off-Campus",  # job_type
+            "branch",  # eligibility_type
+            "CSE,ECE,IT",  # eligible_branches
+            "3rd,4th",  # eligible_years
+            "Master's degree in Data Science or related field;ML experience;Python and TensorFlow knowledge",  # requirements
+            "Technical Round;Managerial Round;Final HR Round",  # rounds
+            "2024-11-30",  # deadline
+            "",  # apply_link - empty means no external link
+            "true"  # is_active
         ],
-        # Example 3: Specific students (new job)
+        # Example 3: Branch-specific with year filter (new job)
         [
             "",  # job_id - empty means create new job
-            "Product Manager",
-            "Amazon",
-            "Product Manager",
-            "Looking for product manager with 3+ years experience. Must have strong analytical and communication skills.",
-            "Mumbai",
-            "₹25 LPA",
-            "On-Campus",
-            "specific_students",
-            "",
-            "101,102,103,104,105",
-            "Bachelor's degree;3+ years experience;Strong analytical skills;Excellent communication",
-            "Aptitude Test;Case Study Round;Product Round;HR Round",
-            "2024-10-15",
-            "",
-            "true"
+            "Product Manager",  # title
+            "Amazon",  # company
+            "Product Manager",  # role
+            "Looking for product manager with 3+ years experience. Must have strong analytical and communication skills.",  # description
+            "Mumbai",  # location
+            "₹25 LPA",  # ctc
+            "On-Campus",  # job_type
+            "branch",  # eligibility_type
+            "CSE,IT",  # eligible_branches - comma-separated branch names
+            "4th",  # eligible_years - only 4th year students
+            "Bachelor's degree;3+ years experience;Strong analytical skills;Excellent communication",  # requirements
+            "Aptitude Test;Case Study Round;Product Round;HR Round",  # rounds
+            "2024-10-15",  # deadline
+            "",  # apply_link - empty means no external link
+            "true"  # is_active
         ],
         # Example 4: Internship (new job)
         [
             "",  # job_id - empty means create new job
-            "Software Development Intern",
-            "Flipkart",
-            "Software Development Intern",
-            "Summer internship for students interested in e-commerce and software development.",
-            "Bangalore",
-            "₹30,000/month",
-            "Internship",
-            "all_students",
-            "",
-            "",
-            "Currently pursuing Bachelor's or Master's degree;Basic programming knowledge",
-            "Online Test;Technical Interview",
-            "2024-09-30",
-            "",
-            "true"
+            "Software Development Intern",  # title
+            "Flipkart",  # company
+            "Software Development Intern",  # role
+            "Summer internship for students interested in e-commerce and software development.",  # description
+            "Bangalore",  # location
+            "₹30,000/month",  # ctc
+            "Internship",  # job_type
+            "all_students",  # eligibility_type
+            "",  # eligible_branches - empty means all branches
+            "2nd,3rd",  # eligible_years
+            "Currently pursuing Bachelor's or Master's degree;Basic programming knowledge",  # requirements
+            "Online Test;Technical Interview",  # rounds
+            "2024-09-30",  # deadline
+            "",  # apply_link - empty means no external link
+            "true"  # is_active
         ]
     ]
     
@@ -376,7 +464,7 @@ async def download_job_template(
             cell.border = border
             cell.alignment = Alignment(vertical="top", wrap_text=True)
     
-    # Set column widths for better readability
+    # Set column widths for better readability - ensure headers are fully visible
     column_widths = {
         'A': 12,  # job_id
         'B': 25,  # title
@@ -386,13 +474,14 @@ async def download_job_template(
         'F': 15,  # location
         'G': 15,  # ctc
         'H': 15,  # job_type
-        'I': 18,  # eligibility_type
+        'I': 20,  # eligibility_type (increased from 18)
         'J': 25,  # eligible_branches
-        'K': 20,  # eligible_user_ids
+        'K': 20,  # eligible_years
         'L': 40,  # requirements
         'M': 35,  # rounds
         'N': 15,  # deadline
-        'O': 12   # is_active
+        'O': 35,  # apply_link (increased from 30)
+        'P': 12   # is_active
     }
     
     for col_letter, width in column_widths.items():
@@ -423,21 +512,20 @@ async def download_job_template(
         ["• eligibility_type: Must be one of: 'all_students', 'branch', or 'specific_students'"],
         ["• eligible_branches: Comma-separated branch names (e.g., 'CSE,ECE,IT')"],
         ["  - REQUIRED if eligibility_type is 'branch'"],
-        ["  - Leave empty if eligibility_type is 'all_students' or 'specific_students'"],
-        ["• eligible_user_ids: Comma-separated user IDs (e.g., '101,102,103')"],
-        ["  - REQUIRED if eligibility_type is 'specific_students'"],
-        ["  - Leave empty if eligibility_type is 'all_students' or 'branch'"],
+        ["  - Leave empty if eligibility_type is 'all_students'"],
+        ["• eligible_years: Comma-separated years (e.g., '1st,2nd,3rd' or '1,2,3')"],
+        ["  - Optional: Filter by student year (works with any eligibility_type)"],
+        ["  - Leave empty to allow all years"],
         ["• requirements: Semicolon-separated requirements (e.g., 'Bachelor's degree;2-5 years')"],
         ["• rounds: Semicolon-separated selection rounds (e.g., 'Online Test;Technical Interview;HR Round')"],
         ["• deadline: Application deadline in YYYY-MM-DD format (e.g., '2024-12-31')"],
         ["• is_active: 'true' or 'false' (default: 'true')"],
         [""],
         ["ELIGIBILITY TYPES EXPLAINED:"],
-        ["1. all_students: Job is visible to ALL registered students across all colleges"],
+        ["1. all_students: Job is visible to ALL registered students (can be filtered by eligible_years)"],
         ["2. branch: Job is visible ONLY to students from specified branches"],
         ["   - Example: If eligible_branches = 'CSE,ECE', only CSE and ECE students can see this job"],
-        ["3. specific_students: Job is visible ONLY to students with specified user IDs"],
-        ["   - Example: If eligible_user_ids = '101,102,103', only those 3 students can see this job"],
+        ["   - Can be combined with eligible_years for additional filtering"],
         [""],
         ["IMPORTANT NOTES:"],
         ["• Jobs uploaded here are GLOBAL - available to ALL registered students (not college-specific)"],
@@ -448,15 +536,15 @@ async def download_job_template(
         ["• Empty rows will be skipped"],
         [""],
         ["EXAMPLES:"],
-        ["• For a job open to all students: eligibility_type='all_students', eligible_branches='', eligible_user_ids=''"],
-        ["• For a job only for CSE and ECE: eligibility_type='branch', eligible_branches='CSE,ECE', eligible_user_ids=''"],
-        ["• For a job for specific students: eligibility_type='specific_students', eligible_branches='', eligible_user_ids='101,102,103'"],
+        ["• For a job open to all students: eligibility_type='all_students', eligible_branches='', eligible_years=''"],
+        ["• For a job only for CSE and ECE: eligibility_type='branch', eligible_branches='CSE,ECE', eligible_years=''"],
+        ["• For a job only for 3rd and 4th year students: eligible_years='3rd,4th' (works with any eligibility_type)"],
+        ["• For a job for CSE/ECE students in 3rd/4th year: eligibility_type='branch', eligible_branches='CSE,ECE', eligible_years='3rd,4th'"],
         [""],
         ["TIPS:"],
         ["• Copy the example rows and modify them for your jobs"],
         ["• Make sure to match the exact format for eligibility_type values"],
         ["• Branch names must match exactly with student department names in the system"],
-        ["• User IDs must be valid existing user IDs in the system"],
     ]
     
     for row in instructions:
@@ -481,7 +569,6 @@ async def download_job_template(
         ["Eligibility Types"],
         ["all_students"],
         ["branch"],
-        ["specific_students"],
         [""],
         ["Common Branches (Examples)"],
         ["CSE"],
@@ -553,14 +640,100 @@ async def get_job(
             user_profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
             is_eligible = False
             
-            if job.eligibility_type == "all_students":
+            # Default to "all_students" if eligibility_type is None or empty
+            eligibility_type = job.eligibility_type or "all_students"
+            
+            if eligibility_type == "all_students":
                 is_eligible = True
-            elif job.eligibility_type == "branch" and user_profile:
-                if job.eligible_branches and user_profile.department:
-                    is_eligible = user_profile.department in job.eligible_branches
-            elif job.eligibility_type == "specific_students":
+            elif eligibility_type == "branch" and user_profile:
+                # Check if user's department matches eligible branches
+                if job.eligible_branches:
+                    # Get department name and code from profile or department relationship
+                    user_department_name = None
+                    user_department_code = None
+                    
+                    if user_profile.department:
+                        user_department_name = user_profile.department.strip()
+                    
+                    if user_profile.department_id:
+                        # Get department name and code from department_id
+                        from app.models.academic import Department
+                        dept_obj = db.query(Department).filter(Department.id == user_profile.department_id).first()
+                        if dept_obj:
+                            if dept_obj.name:
+                                user_department_name = dept_obj.name.strip()
+                            if dept_obj.code:
+                                user_department_code = dept_obj.code.strip()
+                    
+                    if user_department_name or user_department_code:
+                        # Normalize for case-insensitive comparison
+                        user_dept_name_normalized = user_department_name.upper().strip() if user_department_name else None
+                        user_dept_code_normalized = user_department_code.upper().strip() if user_department_code else None
+                        
+                        # Check if any eligible branch matches (case-insensitive)
+                        # eligible_branches can be a list or a single value
+                        eligible_branches_list = job.eligible_branches if isinstance(job.eligible_branches, list) else [job.eligible_branches]
+                        
+                        # Debug logging (can be removed in production)
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.debug(f"Job {job.id}: Checking eligibility - user_dept_name={user_department_name}, user_dept_code={user_department_code}, eligible_branches={eligible_branches_list}")
+                        
+                        for branch in eligible_branches_list:
+                            if branch is None:
+                                continue
+                            branch_normalized = str(branch).upper().strip()
+                            
+                            # Match against both department name and code
+                            if user_dept_name_normalized and user_dept_name_normalized == branch_normalized:
+                                is_eligible = True
+                                logger.debug(f"Job {job.id}: Matched by department name: {user_dept_name_normalized} == {branch_normalized}")
+                                break
+                            if user_dept_code_normalized and user_dept_code_normalized == branch_normalized:
+                                is_eligible = True
+                                logger.debug(f"Job {job.id}: Matched by department code: {user_dept_code_normalized} == {branch_normalized}")
+                                break
+                        
+                        if not is_eligible:
+                            logger.debug(f"Job {job.id}: Not eligible - no match found for user department")
+            elif eligibility_type == "specific_students":
                 if job.eligible_user_ids and current_user.id in job.eligible_user_ids:
                     is_eligible = True
+            
+            # Check year eligibility if eligible_years is specified (applies to all eligibility types)
+            if is_eligible and job.eligible_years and user_profile:
+                user_year = user_profile.present_year
+                if user_year:
+                    from app.core.year_utils import parse_year, format_year
+                    user_year_normalized = parse_year(user_year)
+                    user_year_formatted = format_year(user_year_normalized) if user_year_normalized else None
+                    
+                    eligible_years_list = job.eligible_years if isinstance(job.eligible_years, list) else [job.eligible_years]
+                    
+                    year_match = False
+                    for eligible_year in eligible_years_list:
+                        if eligible_year is None:
+                            continue
+                        eligible_year_normalized = parse_year(str(eligible_year))
+                        eligible_year_formatted = format_year(eligible_year_normalized) if eligible_year_normalized else None
+                        
+                        if (user_year_normalized and eligible_year_normalized and 
+                            user_year_normalized == eligible_year_normalized):
+                            year_match = True
+                            break
+                        if (user_year_formatted and eligible_year_formatted and 
+                            user_year_formatted.upper() == eligible_year_formatted.upper()):
+                            year_match = True
+                            break
+                        if str(user_year).upper().strip() == str(eligible_year).upper().strip():
+                            year_match = True
+                            break
+                    
+                    if not year_match:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="You are not eligible for this job based on your year"
+                        )
             
             if not is_eligible:
                 raise HTTPException(
@@ -741,7 +914,7 @@ async def get_job_applications(
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """Get all applications for a job (Admin only)"""
+    """Get all applications for a job (Admin or Super Admin)"""
     job = db.query(Job).filter(Job.id == job_id).first()
     
     if not job:
@@ -750,17 +923,22 @@ async def get_job_applications(
             detail="Job not found"
         )
     
-    # Verify admin owns this job's college
-    admin_role = db.query(UserRole).filter(
-        UserRole.user_id == current_user.id,
-        UserRole.role == RoleEnum.ADMIN
-    ).first()
+    # Check if user is super admin - they can view all applications
+    user_roles = db.query(UserRole).filter(UserRole.user_id == current_user.id).all()
+    role_names = [role.role for role in user_roles]
     
-    if not admin_role or admin_role.college_id != job.college_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only view applications for jobs from your own college"
-        )
+    if RoleEnum.SUPER_ADMIN not in role_names:
+        # For regular admins, verify they own this job's college
+        admin_role = db.query(UserRole).filter(
+            UserRole.user_id == current_user.id,
+            UserRole.role == RoleEnum.ADMIN
+        ).first()
+        
+        if not admin_role or admin_role.college_id != job.college_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only view applications for jobs from your own college"
+            )
     
     applications = db.query(JobApplication).filter(JobApplication.job_id == job_id).all()
     return applications
@@ -773,7 +951,7 @@ async def update_application(
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """Update an application status (Admin only)"""
+    """Update an application status (Admin or Super Admin)"""
     application = db.query(JobApplication).filter(JobApplication.id == application_id).first()
     
     if not application:
@@ -790,16 +968,22 @@ async def update_application(
             detail="Job not found"
         )
     
-    admin_role = db.query(UserRole).filter(
-        UserRole.user_id == current_user.id,
-        UserRole.role == RoleEnum.ADMIN
-    ).first()
+    # Check if user is super admin - they can update all applications
+    user_roles = db.query(UserRole).filter(UserRole.user_id == current_user.id).all()
+    role_names = [role.role for role in user_roles]
     
-    if not admin_role or admin_role.college_id != job.college_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only update applications for jobs from your own college"
-        )
+    if RoleEnum.SUPER_ADMIN not in role_names:
+        # For regular admins, verify they own this job's college
+        admin_role = db.query(UserRole).filter(
+            UserRole.user_id == current_user.id,
+            UserRole.role == RoleEnum.ADMIN
+        ).first()
+        
+        if not admin_role or admin_role.college_id != job.college_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only update applications for jobs from your own college"
+            )
     
     # Update application fields
     update_data = application_data.model_dump(exclude_unset=True)
@@ -836,18 +1020,18 @@ async def bulk_upload_jobs(
     Supported formats: .xlsx, .xls, .csv
     
     Excel/CSV Format (headers required):
-    title,company,role,description,location,ctc,job_type,eligibility_type,eligible_branches,requirements,rounds,deadline,apply_link,is_active
+    title,company,role,description,location,ctc,job_type,eligibility_type,eligible_branches,eligible_years,requirements,rounds,deadline,apply_link,is_active
     
     Required fields: title, company, role
-    Optional fields: description, location, ctc, job_type, eligibility_type, eligible_branches (comma-separated), requirements (semicolon-separated), rounds (semicolon-separated), deadline, apply_link (external application URL), is_active
+    Optional fields: description, location, ctc, job_type, eligibility_type, eligible_branches (comma-separated), eligible_years (comma-separated, e.g., "1st,2nd,3rd"), requirements (semicolon-separated), rounds (semicolon-separated), deadline, apply_link (external application URL), is_active
     
-    Eligibility types: "all_students", "branch", "specific_students"
+    Eligibility types: "all_students", "branch"
     For "branch" type, provide eligible_branches as comma-separated (e.g., "CSE,ECE,IT")
-    For "specific_students", provide eligible_user_ids as comma-separated (e.g., "1,2,3")
+    For year filtering, provide eligible_years as comma-separated (e.g., "1st,2nd,3rd" or "1,2,3") - works independently of eligibility_type
     
     Example:
-    title,company,role,description,location,ctc,job_type,eligibility_type,eligible_branches,requirements,rounds,deadline,apply_link,is_active
-    Software Engineer,Google,Software Engineer,Looking for experienced developer,Hyderabad,₹15 LPA,On-Campus,branch,"CSE,ECE,IT","Bachelor's degree;2-5 years experience","Online Test;Technical Interview;HR Round",2024-12-31,https://careers.google.com/jobs/apply,true
+    title,company,role,description,location,ctc,job_type,eligibility_type,eligible_branches,eligible_years,requirements,rounds,deadline,apply_link,is_active
+    Software Engineer,Google,Software Engineer,Looking for experienced developer,Hyderabad,₹15 LPA,On-Campus,branch,"CSE,ECE,IT","3rd,4th","Bachelor's degree;2-5 years experience","Online Test;Technical Interview;HR Round",2024-12-31,https://careers.google.com/jobs/apply,true
     """
     try:
         print(f"[Bulk Upload Jobs] Starting upload for user {current_user.id}")
@@ -1033,11 +1217,12 @@ async def bulk_upload_jobs(
             
                 # Parse eligibility
                 eligibility_type = job_data.get('eligibility_type', 'all_students').strip().lower()
-                if eligibility_type not in ['all_students', 'branch', 'specific_students']:
+                if eligibility_type not in ['all_students', 'branch']:
                     eligibility_type = 'all_students'
                 
                 eligible_branches = None
-                eligible_user_ids = None
+                eligible_user_ids = None  # Not used anymore, but keep for backward compatibility
+                eligible_years = None
                 
                 if eligibility_type == 'branch':
                     branches_str = job_data.get('eligible_branches', '').strip()
@@ -1048,16 +1233,18 @@ async def bulk_upload_jobs(
                         if not eligible_branches:
                             raise ValueError("eligible_branches is required when eligibility_type is 'branch'")
                 
-                if eligibility_type == 'specific_students':
-                    user_ids_str = job_data.get('eligible_user_ids', '').strip()
-                    if user_ids_str:
-                        user_ids_str = user_ids_str.strip('"\'')
-                        try:
-                            eligible_user_ids = [int(uid.strip()) for uid in user_ids_str.split(',') if uid.strip()]
-                        except ValueError:
-                            raise ValueError("eligible_user_ids must be comma-separated integers")
-                        if not eligible_user_ids:
-                            raise ValueError("eligible_user_ids is required when eligibility_type is 'specific_students'")
+                # Note: eligible_user_ids feature removed - not needed for College Admin jobs
+                # Only branch-based and year-based filtering is supported
+                # If eligible_user_ids is provided in upload, it will be ignored
+                
+                # Parse eligible_years (comma-separated, e.g., "1st,2nd,3rd" or "1,2,3")
+                years_str = job_data.get('eligible_years', '').strip()
+                if years_str:
+                    years_str = years_str.strip('"\'')
+                    # Normalize years to formatted format (1st, 2nd, etc.)
+                    from app.core.year_utils import format_year
+                    years_list = [y.strip() for y in years_str.split(',') if y.strip()]
+                    eligible_years = [format_year(y) or y for y in years_list]  # Format to "1st", "2nd", etc.
                 
                 # Parse requirements (semicolon-separated)
                 requirements = None
@@ -1105,7 +1292,8 @@ async def bulk_upload_jobs(
                     existing_job.eligibility_type = eligibility_type
                     existing_job.apply_link = job_data.get('apply_link') or None
                     existing_job.eligible_branches = eligible_branches
-                    existing_job.eligible_user_ids = eligible_user_ids
+                    existing_job.eligible_user_ids = None  # Not used for College Admin jobs
+                    existing_job.eligible_years = eligible_years
                     existing_job.requirements = requirements
                     existing_job.rounds = rounds
                     existing_job.deadline = deadline
@@ -1125,7 +1313,8 @@ async def bulk_upload_jobs(
                         job_type=job_data.get('job_type', 'On-Campus'),
                         eligibility_type=eligibility_type,
                         eligible_branches=eligible_branches,
-                        eligible_user_ids=eligible_user_ids,
+                        eligible_user_ids=None,  # Not used for College Admin jobs
+                        eligible_years=eligible_years,
                         requirements=requirements,
                         rounds=rounds,
                         deadline=deadline,
@@ -1136,39 +1325,21 @@ async def bulk_upload_jobs(
                     )
                     db.add(new_job)
                     db.flush()  # Flush to get new_job.id
+                    
+                    # Automatically create Round 0 (Step 0) for tracking all applicants
+                    from app.models.job_round import JobRound
+                    round_0 = JobRound(
+                        job_id=new_job.id,
+                        name="Applied",
+                        order=0,
+                        description="Default round for tracking all students who applied for this job",
+                        is_active=True
+                    )
+                    db.add(round_0)
+                    
                     action = "created"
                 
                 # If super admin created the job, also add it to job aggregation table
-                # Note: This is optional - if it fails, we still want to create the job
-                # We'll skip JobAggregation creation for now to avoid database issues
-                # TODO: Fix JobAggregation table schema to support auto-increment properly
-                if RoleEnum.SUPER_ADMIN in role_names:
-                    # Skip JobAggregation creation for now - it's causing database issues
-                    # Jobs will still be created successfully
-                    pass
-                    # Uncomment below when JobAggregation table is fixed:
-                    # try:
-                    #     aggregation = JobAggregation(
-                    #         source="manual",
-                    #         external_id=f"job_{new_job.id}",
-                    #         title=new_job.title,
-                    #         company=new_job.company,
-                    #         role=new_job.role,
-                    #         description=new_job.description,
-                    #         location=new_job.location,
-                    #         ctc=new_job.ctc,
-                    #         job_type=new_job.job_type or "On-Campus",
-                    #         posted_date=datetime.utcnow(),
-                    #         is_active=True,
-                    #         is_imported=True,
-                    #         college_id=None,
-                    #         last_synced_at=datetime.utcnow()
-                    #     )
-                    #     db.add(aggregation)
-                    # except Exception as agg_error:
-                    #     import traceback
-                    #     print(f"Warning: Failed to create aggregation entry for job {new_job.id}: {agg_error}")
-                    #     print(traceback.format_exc())
                 
                 results["success"].append({
                     "index": idx,

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Briefcase, MapPin, Calendar, IndianRupee, Loader2, Users, CheckCircle2, ExternalLink } from "lucide-react";
+import { Briefcase, MapPin, Calendar, IndianRupee, Loader2, Users, CheckCircle2, ExternalLink, ArrowRight, Clock, XCircle } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,111 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { apiClient } from "@/integrations/api/client";
 import { toast } from "@/hooks/use-toast";
 import { JobFilters } from "@/components/filters/JobFilters";
+
+// Component to show round status for students
+function JobRoundStatus({ jobId }: { jobId: number }) {
+  const [roundStatus, setRoundStatus] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const data = await apiClient.getStudentJobStatus();
+        const jobStatus = data.applications?.find((app: any) => app.job_id === jobId);
+        if (jobStatus) {
+          setRoundStatus(jobStatus);
+        }
+      } catch (error) {
+        console.error("Error fetching round status:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStatus();
+  }, [jobId]);
+
+  if (loading) {
+    return (
+      <div className="mt-4 p-4 border rounded-lg">
+        <p className="text-sm text-muted-foreground">Loading round status...</p>
+      </div>
+    );
+  }
+
+  if (!roundStatus || !roundStatus.rounds || roundStatus.rounds.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 p-4 border rounded-lg bg-muted/30">
+      <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
+        <ArrowRight className="h-5 w-5" />
+        Application Status
+      </h3>
+      <div className="space-y-3">
+        {roundStatus.rounds.map((round: any, idx: number) => {
+          const isLast = idx === roundStatus.rounds.length - 1;
+          const getStatusIcon = () => {
+            switch (round.status) {
+              case "QUALIFIED":
+                return <CheckCircle2 className="h-5 w-5 text-green-500" />;
+              case "REJECTED":
+                return <XCircle className="h-5 w-5 text-red-500" />;
+              case "ABSENT":
+                return <XCircle className="h-5 w-5 text-orange-500" />;
+              default:
+                return <Clock className="h-5 w-5 text-muted-foreground" />;
+            }
+          };
+
+          const getStatusBadge = () => {
+            switch (round.status) {
+              case "QUALIFIED":
+                return <Badge className="bg-green-500 text-white">Qualified</Badge>;
+              case "REJECTED":
+                return <Badge variant="destructive">Rejected</Badge>;
+              case "ABSENT":
+                return <Badge variant="outline" className="border-orange-500 text-orange-500">Absent</Badge>;
+              default:
+                return <Badge variant="secondary">Pending</Badge>;
+            }
+          };
+
+          return (
+            <div key={round.round_id} className="flex items-start gap-3">
+              <div className="flex flex-col items-center">
+                {getStatusIcon()}
+                {!isLast && (
+                  <div className={`w-0.5 h-8 mt-1 ${
+                    round.status === "QUALIFIED" ? "bg-green-500" : 
+                    round.status === "REJECTED" || round.status === "ABSENT" ? "bg-red-500" : 
+                    "bg-muted"
+                  }`} />
+                )}
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-medium">{round.round_name}</h4>
+                    {round.remarks && (
+                      <p className="text-sm text-muted-foreground mt-1">{round.remarks}</p>
+                    )}
+                    {round.updated_at && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Updated: {new Date(round.updated_at).toLocaleDateString()}
+                      </p>
+                    )}
+                  </div>
+                  {getStatusBadge()}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 interface Job {
   id: number;
@@ -23,6 +128,7 @@ interface Job {
   rounds: string[];
   selection_rounds?: string[];
   apply_link: string | null;
+  company_logo?: string | null;
   is_active: boolean;
   status?: string;
   logo?: string;
@@ -49,20 +155,47 @@ export default function Jobs() {
     try {
       setLoading(true);
       const data = await apiClient.listJobs({ is_active: true });
+      
+      // Debug: Log the data received
+      console.log("[Jobs] Fetched jobs data:", data);
+      console.log("[Jobs] Number of jobs:", Array.isArray(data) ? data.length : 0);
+      
+      // Ensure data is an array
+      if (!Array.isArray(data)) {
+        console.error("[Jobs] Expected array but got:", typeof data, data);
+        setJobs([]);
+        return;
+      }
+      
       // Fetch user's applications to determine which jobs are already applied
       const applications = await apiClient.getMyApplications().catch(() => []);
       const appliedJobIds = new Set(applications.map((app: any) => app.job_id));
       
-      const jobsWithStatus = data.map((job: any) => ({
-        ...job,
-        status: appliedJobIds.has(job.id) ? "Applied" : "Not Applied",
-        logo: job.company?.charAt(0)?.toUpperCase() || "J",
-        totalApplicants: job.total_applicants || 0,
-        shortlisted: job.shortlisted || 0,
-        // Ensure rounds is available (could be rounds or selection_rounds)
-        rounds: job.rounds || job.selection_rounds || [],
-      }));
+      const jobsWithStatus = data.map((job: any) => {
+        const processedJob = {
+          ...job,
+          status: appliedJobIds.has(job.id) ? "Applied" : "Not Applied",
+          logo: job.company?.charAt(0)?.toUpperCase() || "J",
+          company_logo: job.company_logo || null,
+          totalApplicants: job.total_applicants || 0,
+          shortlisted: job.shortlisted || 0,
+          // Ensure rounds is available (could be rounds or selection_rounds)
+          rounds: job.rounds || job.selection_rounds || [],
+          // Ensure apply_link is properly set (check multiple possible field names)
+          apply_link: job.apply_link || job.applyLink || job.apply_url || null,
+        };
+        
+        // Log jobs with apply links for debugging
+        if (processedJob.apply_link) {
+          console.log(`[Jobs] Job ${processedJob.id} (${processedJob.company}) has apply_link:`, processedJob.apply_link);
+        }
+        
+        return processedJob;
+      });
       
+      console.log("[Jobs] Processed jobs:", jobsWithStatus.length);
+      const jobsWithLinks = jobsWithStatus.filter(j => j.apply_link);
+      console.log("[Jobs] Jobs with apply links:", jobsWithLinks.length);
       setJobs(jobsWithStatus);
     } catch (error: any) {
       console.error("Error fetching jobs:", error);
@@ -71,6 +204,7 @@ export default function Jobs() {
         description: error.message || "Failed to load jobs",
         variant: "destructive",
       });
+      setJobs([]);
     } finally {
       setLoading(false);
     }
@@ -108,13 +242,42 @@ export default function Jobs() {
   const handleApply = async (jobId: number) => {
     const job = jobs.find(j => j.id === jobId);
     
-    // If job has external apply link, open it
-    if (job?.apply_link) {
-      window.open(job.apply_link, '_blank', 'noopener,noreferrer');
+    if (!job) {
       toast({
-        title: "Opening Application",
-        description: "Redirecting to external application page...",
+        title: "Error",
+        description: "Job not found",
+        variant: "destructive",
       });
+      return;
+    }
+    
+    // If job has external apply link, ALWAYS redirect to it (even if already applied)
+    if (job.apply_link) {
+      // Ensure the link has http:// or https://
+      let applyUrl = job.apply_link.trim();
+      if (!applyUrl.startsWith('http://') && !applyUrl.startsWith('https://')) {
+        applyUrl = 'https://' + applyUrl;
+      }
+      
+      console.log("[Jobs] Opening external apply link for job", jobId, ":", applyUrl);
+      console.log("[Jobs] Job details:", { company: job.company, role: job.role, apply_link: job.apply_link });
+      
+      // Open in new tab
+      const newWindow = window.open(applyUrl, '_blank', 'noopener,noreferrer');
+      
+      if (!newWindow) {
+        // Popup blocked - show error
+        toast({
+          title: "Popup Blocked",
+          description: "Please allow popups for this site to open the application link, or click the link in the job details.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Opening Application",
+          description: "Redirecting to external application page in a new tab...",
+        });
+      }
       return;
     }
 
@@ -193,7 +356,21 @@ export default function Jobs() {
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="h-14 w-14 rounded-lg bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center flex-shrink-0 shadow-md">
+                      {job.company_logo ? (
+                        <img 
+                          src={job.company_logo} 
+                          alt={job.company} 
+                          className="h-14 w-14 rounded-lg object-contain flex-shrink-0 shadow-md border"
+                          onError={(e) => {
+                            // Fallback to letter logo if image fails to load
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            const fallback = target.nextElementSibling as HTMLElement;
+                            if (fallback) fallback.style.display = 'flex';
+                          }}
+                        />
+                      ) : null}
+                      <div className={`h-14 w-14 rounded-lg bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center flex-shrink-0 shadow-md ${job.company_logo ? 'hidden' : ''}`}>
                         <span className="text-white font-bold text-xl">{job.logo}</span>
                       </div>
                       <div className="flex-1 min-w-0">
@@ -261,12 +438,24 @@ export default function Jobs() {
 
                   <Button 
                     className="w-full font-semibold" 
-                    variant={job.status === "Applied" ? "outline" : "default"}
+                    variant={job.status === "Applied" && !job.apply_link ? "outline" : "default"}
                     size="lg"
                     disabled={applying === job.id}
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (job.status !== "Applied") handleApply(job.id);
+                      // If job has apply_link, always redirect (even if already applied)
+                      if (job.apply_link) {
+                        handleApply(job.id);
+                      } else if (job.status === "Applied") {
+                        // Already applied through platform, no external link
+                        toast({
+                          title: "Already Applied",
+                          description: "You have already applied for this position through the platform.",
+                        });
+                      } else {
+                        // Apply through platform
+                        handleApply(job.id);
+                      }
                     }}
                   >
                     {applying === job.id ? (
@@ -274,15 +463,16 @@ export default function Jobs() {
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
                         Applying...
                       </>
+                    ) : job.apply_link ? (
+                      // Always show "Apply on Company Website" if external link exists
+                      <>
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        {job.status === "Applied" ? "Apply on Company Website" : "Apply on Company Website"}
+                      </>
                     ) : job.status === "Applied" ? (
                       <>
                         <CheckCircle2 className="h-4 w-4 mr-2" />
                         View Application
-                      </>
-                    ) : job.apply_link ? (
-                      <>
-                        <Briefcase className="h-4 w-4 mr-2" />
-                        Apply Externally
                       </>
                     ) : (
                       <>
@@ -313,7 +503,20 @@ export default function Jobs() {
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <div className="flex items-start gap-4 mb-4 pb-4 border-b">
-              <div className="h-20 w-20 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-lg flex-shrink-0">
+              {selectedJob?.company_logo ? (
+                <img 
+                  src={selectedJob.company_logo} 
+                  alt={selectedJob.company} 
+                  className="h-20 w-20 rounded-xl object-contain shadow-lg flex-shrink-0 border"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = 'none';
+                    const fallback = target.nextElementSibling as HTMLElement;
+                    if (fallback) fallback.style.display = 'flex';
+                  }}
+                />
+              ) : null}
+              <div className={`h-20 w-20 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-lg flex-shrink-0 ${selectedJob?.company_logo ? 'hidden' : ''}`}>
                 <span className="text-white font-bold text-3xl">{selectedJob?.logo}</span>
               </div>
               <div className="flex-1 min-w-0">
@@ -416,6 +619,13 @@ export default function Jobs() {
                   </div>
                 )}
 
+                {/* Round Status for Applied Jobs */}
+                {selectedJob.status === "Applied" && (
+                  <div className="mt-4">
+                    <JobRoundStatus jobId={selectedJob.id} />
+                  </div>
+                )}
+
                 {selectedJob.apply_link && (
                   <div className="bg-blue-50 dark:bg-blue-950/20 p-4 rounded-lg border-2 border-blue-200 dark:border-blue-800">
                     <div className="flex items-start gap-3">
@@ -428,10 +638,20 @@ export default function Jobs() {
                           This job requires applying through the company's website. Click the button below to open the application page.
                         </p>
                         <a 
-                          href={selectedJob.apply_link} 
+                          href={selectedJob.apply_link.startsWith('http://') || selectedJob.apply_link.startsWith('https://') 
+                            ? selectedJob.apply_link 
+                            : `https://${selectedJob.apply_link}`} 
                           target="_blank" 
                           rel="noopener noreferrer"
                           className="text-sm text-blue-600 dark:text-blue-400 hover:underline break-all"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // Ensure link opens correctly
+                            const url = selectedJob.apply_link.startsWith('http://') || selectedJob.apply_link.startsWith('https://')
+                              ? selectedJob.apply_link
+                              : `https://${selectedJob.apply_link}`;
+                            window.open(url, '_blank', 'noopener,noreferrer');
+                          }}
                         >
                           {selectedJob.apply_link}
                         </a>
@@ -444,10 +664,22 @@ export default function Jobs() {
               <Button 
                 className="w-full" 
                 size="lg"
-                variant={selectedJob.status === "Applied" ? "outline" : "default"}
+                variant={selectedJob.status === "Applied" && !selectedJob.apply_link ? "outline" : "default"}
                 disabled={applying === selectedJob.id}
                 onClick={() => {
-                  if (selectedJob.status !== "Applied") handleApply(selectedJob.id);
+                  // If job has apply_link, always redirect (even if already applied)
+                  if (selectedJob.apply_link) {
+                    handleApply(selectedJob.id);
+                  } else if (selectedJob.status === "Applied") {
+                    // Already applied through platform, no external link
+                    toast({
+                      title: "Already Applied",
+                      description: "You have already applied for this position through the platform.",
+                    });
+                  } else {
+                    // Apply through platform
+                    handleApply(selectedJob.id);
+                  }
                 }}
               >
                 {applying === selectedJob.id ? (
@@ -455,15 +687,22 @@ export default function Jobs() {
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
                     Applying...
                   </>
-                ) : selectedJob.status === "Applied" ? (
-                  "Application Submitted"
                 ) : selectedJob.apply_link ? (
+                  // Always show "Apply on Company Website" if external link exists
                   <>
-                    <Briefcase className="h-4 w-4 mr-2" />
+                    <ExternalLink className="h-4 w-4 mr-2" />
                     Apply on Company Website
                   </>
+                ) : selectedJob.status === "Applied" ? (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                    Application Submitted
+                  </>
                 ) : (
-                  "Apply for this Position"
+                  <>
+                    <Briefcase className="h-4 w-4 mr-2" />
+                    Apply for this Position
+                  </>
                 )}
               </Button>
             </div>

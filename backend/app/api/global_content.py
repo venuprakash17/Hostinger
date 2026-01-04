@@ -4,6 +4,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session, load_only
 from sqlalchemy import or_, and_, cast, Integer, func, cast, String
 from typing import List, Optional
+import re
 from app.core.database import get_db
 from app.models.user import User, UserRole, RoleEnum
 from app.models.profile import Profile
@@ -224,13 +225,98 @@ async def create_quiz(
                     question_timers[str(idx)] = q_dict['timer_seconds']
             question_timers = question_timers if question_timers else None
     
+    # Handle question bank integration
+    final_questions = []
+    if hasattr(quiz_data, 'use_random_questions') and quiz_data.use_random_questions and hasattr(quiz_data, 'question_bank_ids') and quiz_data.question_bank_ids:
+        # Use questions from question bank
+        from app.models.question_bank import QuestionBank
+        bank_questions = db.query(QuestionBank).filter(
+            QuestionBank.id.in_(quiz_data.question_bank_ids),
+            QuestionBank.is_active == True
+        ).all()
+        
+        # Convert question bank questions to quiz format
+        for bank_q in bank_questions:
+            if bank_q.question_type == "MCQ":
+                question_dict = {
+                    "question": bank_q.question_text,
+                    "question_type": "mcq",
+                    "option_a": bank_q.options[0] if bank_q.options and len(bank_q.options) > 0 else "",
+                    "option_b": bank_q.options[1] if bank_q.options and len(bank_q.options) > 1 else "",
+                    "option_c": bank_q.options[2] if bank_q.options and len(bank_q.options) > 2 else "",
+                    "option_d": bank_q.options[3] if bank_q.options and len(bank_q.options) > 3 else "",
+                    "correct_answer": bank_q.correct_answer,
+                    "marks": bank_q.marks,
+                    "negative_marking": bank_q.negative_marking,
+                }
+            elif bank_q.question_type == "TRUE_FALSE":
+                question_dict = {
+                    "question": bank_q.question_text,
+                    "question_type": "true_false",
+                    "is_true": bank_q.correct_answer.lower() == "true",
+                    "correct_answer": bank_q.correct_answer,
+                    "marks": bank_q.marks,
+                    "negative_marking": bank_q.negative_marking,
+                }
+            final_questions.append(question_dict)
+        
+        # If random_question_count is specified, randomly select that many
+        if hasattr(quiz_data, 'random_question_count') and quiz_data.random_question_count:
+            import random
+            if len(final_questions) > quiz_data.random_question_count:
+                final_questions = random.sample(final_questions, quiz_data.random_question_count)
+        
+        # Shuffle if enabled
+        if hasattr(quiz_data, 'shuffle_questions') and quiz_data.shuffle_questions:
+            import random
+            random.shuffle(final_questions)
+    else:
+        # Use manual questions
+        final_questions = [q.model_dump() if hasattr(q, 'model_dump') else q for q in quiz_data.questions]
+        
+        # Shuffle questions if enabled
+        if hasattr(quiz_data, 'shuffle_questions') and quiz_data.shuffle_questions:
+            import random
+            random.shuffle(final_questions)
+        
+        # Shuffle options if enabled
+        if hasattr(quiz_data, 'shuffle_options') and quiz_data.shuffle_options:
+            import random
+            for q in final_questions:
+                if isinstance(q, dict) and q.get('question_type') == 'mcq':
+                    options = [
+                        ('A', q.get('option_a')),
+                        ('B', q.get('option_b')),
+                        ('C', q.get('option_c')),
+                        ('D', q.get('option_d'))
+                    ]
+                    random.shuffle(options)
+                    correct_answer = q.get('correct_answer', 'A')
+                    # Find new position of correct answer
+                    for idx, (letter, _) in enumerate(options):
+                        if letter == correct_answer:
+                            q['correct_answer'] = ['A', 'B', 'C', 'D'][idx]
+                            break
+                    q['option_a'] = options[0][1]
+                    q['option_b'] = options[1][1]
+                    q['option_c'] = options[2][1]
+                    q['option_d'] = options[3][1]
+    
+    # Handle bulk assignment for College Admin
+    assigned_branches = None
+    assigned_sections = None
+    
+    if user_info["is_admin"] and hasattr(quiz_data, 'assigned_branches'):
+        assigned_branches = quiz_data.assigned_branches
+        assigned_sections = quiz_data.assigned_sections if hasattr(quiz_data, 'assigned_sections') else None
+    
     quiz = Quiz(
         title=quiz_data.title,
         description=quiz_data.description,
         subject=quiz_data.subject,
         duration_minutes=quiz_data.duration_minutes,
         total_marks=quiz_data.total_marks,
-        questions=[q.model_dump() if hasattr(q, 'model_dump') else q for q in quiz_data.questions],
+        questions=final_questions,
         is_active=quiz_data.is_active,
         created_by=current_user.id,
         start_time=quiz_data.start_time,
@@ -241,13 +327,75 @@ async def create_quiz(
         department=quiz_data.department,
         section_id=quiz_data.section_id,
         year=quiz_data.year,
-        # code_snippet removed - column doesn't exist in database
         question_timers=question_timers,
-        # per_question_timer_enabled removed - column doesn't exist in database
+        # Enhanced features
+        assigned_branches=assigned_branches,
+        assigned_sections=assigned_sections,
+        allow_negative_marking=getattr(quiz_data, 'allow_negative_marking', False),
+        shuffle_questions=getattr(quiz_data, 'shuffle_questions', False),
+        shuffle_options=getattr(quiz_data, 'shuffle_options', False),
+        status=getattr(quiz_data, 'status', 'draft'),
+        passing_marks=getattr(quiz_data, 'passing_marks', None),
+        question_bank_ids=getattr(quiz_data, 'question_bank_ids', None),
+        use_random_questions=getattr(quiz_data, 'use_random_questions', False),
+        random_question_count=getattr(quiz_data, 'random_question_count', None),
     )
     db.add(quiz)
     db.commit()
     db.refresh(quiz)
+    
+    # If bulk assignment is enabled, create quiz instances for each branch/section
+    if user_info["is_admin"] and assigned_branches and len(assigned_branches) > 0:
+        from app.models.academic import Department, Section
+        
+        # Get all sections from assigned branches
+        if assigned_sections and len(assigned_sections) > 0:
+            # Specific sections selected
+            sections_to_assign = db.query(Section).filter(
+                Section.id.in_(assigned_sections),
+                Section.college_id == user_info["college_id"]
+            ).all()
+        else:
+            # All sections in assigned branches
+            sections_to_assign = db.query(Section).filter(
+                Section.department_id.in_(assigned_branches),
+                Section.college_id == user_info["college_id"],
+                Section.is_active == True
+            ).all()
+        
+        # Create quiz instances for each section (if not already created for all)
+        if len(sections_to_assign) > 1:
+            # Create additional quiz instances for each section
+            for section in sections_to_assign[1:]:  # Skip first, already created above
+                section_quiz = Quiz(
+                    title=f"{quiz_data.title} - {section.name}",
+                    description=quiz_data.description,
+                    subject=quiz_data.subject,
+                    duration_minutes=quiz_data.duration_minutes,
+                    total_marks=quiz_data.total_marks,
+                    questions=final_questions.copy(),  # Copy questions for each instance
+                    is_active=quiz_data.is_active,
+                    created_by=current_user.id,
+                    start_time=quiz_data.start_time,
+                    end_time=quiz_data.end_time,
+                    expiry_date=quiz_data.expiry_date,
+                    scope_type="section",
+                    college_id=user_info["college_id"],
+                    department=section.department.name if section.department else None,
+                    section_id=section.id,
+                    year=section.year,
+                    question_timers=question_timers,
+                    allow_negative_marking=getattr(quiz_data, 'allow_negative_marking', False),
+                    shuffle_questions=getattr(quiz_data, 'shuffle_questions', False),
+                    shuffle_options=getattr(quiz_data, 'shuffle_options', False),
+                    status=getattr(quiz_data, 'status', 'draft'),
+                    passing_marks=getattr(quiz_data, 'passing_marks', None),
+                )
+                db.add(section_quiz)
+            
+            db.commit()
+            logger.info(f"Created {len(sections_to_assign)} quiz instances for bulk assignment")
+    
     return quiz
 
 
@@ -280,11 +428,13 @@ async def list_quizzes(
         )
     )
     
-    # Filter by start_time (only show quizzes that have started or have no start_time)
+    # Don't filter by start_time - let students see upcoming quizzes
+    # The frontend will handle showing "Upcoming" status
+    # Only filter out quizzes that have explicitly ended (end_time)
     query = query.filter(
         or_(
-            Quiz.start_time.is_(None),
-            Quiz.start_time <= now
+            Quiz.end_time.is_(None),
+            Quiz.end_time > now
         )
     )
     
@@ -382,7 +532,7 @@ async def list_quizzes(
                             # If no matching section found, only show quizzes with no section restriction
                             query = query.filter(Quiz.section_id.is_(None))
                     
-                    # Year matching: exact match required for section-level quizzes
+                    # Year matching: exact match (year formats should match)
                     if profile.present_year:
                         query = query.filter(
                             or_(
@@ -400,23 +550,58 @@ async def list_quizzes(
                         Quiz.college_id == profile.college_id
                     )
                     # Apply department/section/year filters
+                    # Also check for bulk-assigned quizzes (assigned_branches, assigned_sections)
+                    department_conditions = []
+                    section_conditions = []
+                    
+                    # Standard department matching
                     if profile.department:
-                        college_quizzes = and_(
-                            college_quizzes,
+                        department_conditions.append(Quiz.department == profile.department)
+                    if profile.department_id:
+                        # Check if quiz is assigned to student's department (bulk assignment)
+                        department_conditions.append(
+                            func.json_extract(Quiz.assigned_branches, '$') != None
+                        )
+                    
+                    # Standard section matching
+                    if profile.section_id:
+                        section_conditions.append(Quiz.section_id == profile.section_id)
+                        # Also check bulk assignment
+                        section_conditions.append(
+                            func.json_extract(Quiz.assigned_sections, '$') != None
+                        )
+                    
+                    # Build combined conditions
+                    if department_conditions or section_conditions:
+                        combined_conditions = []
+                        
+                        # Add standard matching
+                        if profile.department:
+                            combined_conditions.append(Quiz.department == profile.department)
+                        if profile.section_id:
+                            combined_conditions.append(Quiz.section_id == profile.section_id)
+                        
+                        # Add bulk assignment checks (will be filtered in Python)
+                        combined_conditions.append(
                             or_(
-                                Quiz.department.is_(None),
-                                Quiz.department == profile.department
+                                Quiz.assigned_branches.isnot(None),
+                                Quiz.assigned_sections.isnot(None)
                             )
                         )
-                    # For section-level quizzes: match by section_id AND year exactly
-                    if profile.section_id:
-                        # Exact match for section_id
+                        
+                        # Also allow quizzes with no restrictions
+                        combined_conditions.append(
+                            and_(
+                                Quiz.department.is_(None),
+                                Quiz.section_id.is_(None),
+                                Quiz.assigned_branches.is_(None),
+                                Quiz.assigned_sections.is_(None)
+                            )
+                        )
+                        
                         college_quizzes = and_(
                             college_quizzes,
-                            or_(
-                                Quiz.section_id.is_(None),
-                                Quiz.section_id == profile.section_id
-                            )
+                            or_(*combined_conditions)
                         )
                     elif profile.section:
                         # Fallback: Match by section name - find section IDs matching the section name
@@ -439,7 +624,7 @@ async def list_quizzes(
                                 Quiz.section_id.is_(None)
                             )
                     
-                    # Year matching: exact match required for section-level quizzes
+                    # Year matching: exact match (both should be in same format)
                     if profile.present_year:
                         college_quizzes = and_(
                             college_quizzes,
@@ -493,8 +678,35 @@ async def list_quizzes(
     from app.core.db_utils import safe_list_query
     
     try:
-        quizzes = safe_list_query(db, query.order_by(Quiz.created_at.desc()))
-        return quizzes
+        all_quizzes = safe_list_query(db, query.order_by(Quiz.created_at.desc()))
+        
+        # Filter bulk-assigned quizzes in Python (SQLite JSON support is limited)
+        if current_user:
+            profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
+            if profile:
+                filtered_quizzes = []
+                for quiz in all_quizzes:
+                    # Check if quiz has bulk assignment
+                    if hasattr(quiz, 'assigned_branches') and quiz.assigned_branches:
+                        # Check if student's department is in assigned branches
+                        if profile.department_id and profile.department_id in quiz.assigned_branches:
+                            filtered_quizzes.append(quiz)
+                            continue
+                    
+                    if hasattr(quiz, 'assigned_sections') and quiz.assigned_sections:
+                        # Check if student's section is in assigned sections
+                        if profile.section_id and profile.section_id in quiz.assigned_sections:
+                            filtered_quizzes.append(quiz)
+                            continue
+                    
+                    # Include if no bulk assignment (standard quiz)
+                    if (not hasattr(quiz, 'assigned_branches') or not quiz.assigned_branches) and \
+                       (not hasattr(quiz, 'assigned_sections') or not quiz.assigned_sections):
+                        filtered_quizzes.append(quiz)
+                
+                return filtered_quizzes
+        
+        return all_quizzes
     except Exception as e:
         import traceback
         import sys
@@ -613,6 +825,12 @@ async def start_quiz_attempt(
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")
     
+    # Check quiz status
+    if hasattr(quiz, 'status') and quiz.status == "archived":
+        raise HTTPException(status_code=400, detail="Quiz is archived")
+    if hasattr(quiz, 'status') and quiz.status == "draft":
+        raise HTTPException(status_code=400, detail="Quiz is not published yet")
+    
     if not quiz.is_active:
         raise HTTPException(status_code=400, detail="Quiz is not active")
     
@@ -633,9 +851,20 @@ async def start_quiz_attempt(
     ).first()
     
     if existing:
-        # Return existing attempt
+        # Return existing attempt with server-calculated remaining time
         attempt_dict = {c.name: getattr(existing, c.name) for c in existing.__table__.columns}
         attempt_dict['answers'] = existing.answers or []
+        
+        # Calculate server-side remaining time
+        if quiz.duration_minutes > 0:
+            start_time = existing.started_at
+            duration_ms = quiz.duration_minutes * 60 * 1000
+            elapsed = (now - start_time).total_seconds() * 1000
+            remaining_ms = max(0, duration_ms - elapsed)
+            attempt_dict['remaining_time_seconds'] = int(remaining_ms / 1000)
+        else:
+            attempt_dict['remaining_time_seconds'] = None
+        
         return attempt_dict
     
     # Create new attempt
@@ -646,7 +875,48 @@ async def start_quiz_attempt(
     
     attempt_dict = {c.name: getattr(attempt, c.name) for c in attempt.__table__.columns}
     attempt_dict['answers'] = []
+    attempt_dict['remaining_time_seconds'] = quiz.duration_minutes * 60 if quiz.duration_minutes > 0 else None
     return attempt_dict
+
+
+@router.get("/quiz-attempts/{attempt_id}/remaining-time")
+async def get_remaining_time(
+    attempt_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get server-validated remaining time for quiz attempt"""
+    attempt = db.query(QuizAttempt).filter(QuizAttempt.id == attempt_id).first()
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Attempt not found")
+    
+    if attempt.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    if attempt.is_submitted:
+        return {"remaining_time_seconds": 0, "is_expired": True}
+    
+    quiz = attempt.quiz
+    now = datetime.utcnow()
+    
+    if quiz.duration_minutes > 0:
+        start_time = attempt.started_at
+        duration_ms = quiz.duration_minutes * 60 * 1000
+        elapsed = (now - start_time).total_seconds() * 1000
+        remaining_ms = max(0, duration_ms - elapsed)
+        remaining_seconds = int(remaining_ms / 1000)
+        
+        return {
+            "remaining_time_seconds": remaining_seconds,
+            "is_expired": remaining_seconds <= 0,
+            "server_time": now.isoformat(),
+        }
+    else:
+        return {
+            "remaining_time_seconds": None,
+            "is_expired": False,
+            "server_time": now.isoformat(),
+        }
 
 
 @router.put("/quiz-attempts/{attempt_id}", response_model=QuizAttemptResponse)
@@ -667,12 +937,17 @@ async def update_quiz_attempt(
     if attempt.is_submitted:
         raise HTTPException(status_code=400, detail="Quiz already submitted")
     
-    # Check if quiz time expired
+    # Check if quiz time expired (server-side validation)
     quiz = attempt.quiz
     now = datetime.utcnow()
     if quiz.duration_minutes > 0:
-        time_elapsed = (now - attempt.started_at).total_seconds() / 60
-        if time_elapsed > quiz.duration_minutes:
+        start_time = attempt.started_at
+        duration_ms = quiz.duration_minutes * 60 * 1000
+        elapsed_ms = (now - start_time).total_seconds() * 1000
+        remaining_ms = duration_ms - elapsed_ms
+        
+        if remaining_ms <= 0:
+            # Time expired - auto-submit
             attempt.is_auto_submitted = True
             attempt.auto_submitted_at = now
             attempt.is_submitted = True
@@ -735,17 +1010,48 @@ async def submit_quiz(
             user_answer = answer.get('answer')
             
             # Grade based on question type
+            negative_marking = question.get('negative_marking', 0.0)
+            allow_negative = quiz.allow_negative_marking if hasattr(quiz, 'allow_negative_marking') else False
+            
             if question_type == 'mcq':
                 correct_answer = question.get('correct_answer', '').upper()
                 if user_answer and str(user_answer).upper() == correct_answer:
                     points_earned = question.get('marks', 1)
+                elif allow_negative and negative_marking > 0:
+                    # Apply negative marking for wrong answer
+                    points_earned = -negative_marking
             elif question_type == 'true_false':
                 correct_bool = question.get('is_true', False)
-                if user_answer is not None and bool(user_answer) == correct_bool:
+                # Handle both boolean and string answers
+                user_bool = None
+                if isinstance(user_answer, bool):
+                    user_bool = user_answer
+                elif isinstance(user_answer, str):
+                    user_bool = user_answer.lower() in ['true', 't', '1', 'yes']
+                elif user_answer is not None:
+                    user_bool = bool(user_answer)
+                
+                if user_bool is not None and user_bool == correct_bool:
                     points_earned = question.get('marks', 1)
+                elif allow_negative and negative_marking > 0:
+                    # Apply negative marking for wrong answer
+                    points_earned = -negative_marking
             elif question_type == 'fill_blank':
-                correct_text = question.get('correct_answer_text', '').strip().lower()
-                if user_answer and str(user_answer).strip().lower() == correct_text:
+                # Normalize fill-in-the-blank answers: case-insensitive, trim, remove periods, normalize spaces
+                def normalize_fill_blank_answer(text: str) -> str:
+                    if not text:
+                        return ""
+                    # Convert to lowercase, strip whitespace
+                    normalized = str(text).strip().lower()
+                    # Remove periods/full stops
+                    normalized = normalized.replace('.', '')
+                    # Normalize multiple spaces to single space
+                    normalized = re.sub(r'\s+', ' ', normalized)
+                    return normalized.strip()
+                
+                correct_text = normalize_fill_blank_answer(question.get('correct_answer_text', ''))
+                user_answer_normalized = normalize_fill_blank_answer(str(user_answer) if user_answer else '')
+                if user_answer_normalized and user_answer_normalized == correct_text:
                     points_earned = question.get('marks', 1)
             
             # Update answer with points
@@ -754,6 +1060,7 @@ async def submit_quiz(
             answer['is_correct'] = points_earned > 0
             total_score += points_earned
     
+    # Ensure score doesn't go below 0 (even with negative marking)
     attempt.total_score = max(0, total_score)
     attempt.max_score = max_score
     attempt.percentage = (attempt.total_score / attempt.max_score * 100) if max_score > 0 else 0

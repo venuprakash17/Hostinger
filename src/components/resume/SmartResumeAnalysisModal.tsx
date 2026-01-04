@@ -3,7 +3,7 @@
  * Analyzes resume completeness and suggests missing sections and projects
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -87,7 +87,7 @@ interface SmartResumeAnalysisModalProps {
   onProceed: () => void;
 }
 
-export function SmartResumeAnalysisModal({
+export const SmartResumeAnalysisModal = memo(function SmartResumeAnalysisModal({
   open,
   onOpenChange,
   resumeData,
@@ -114,14 +114,40 @@ export function SmartResumeAnalysisModal({
   const [isRankingProjects, setIsRankingProjects] = useState(false);
   const [selectedProjectsToKeep, setSelectedProjectsToKeep] = useState<Set<string>>(new Set());
   const [isRewritingDescriptions, setIsRewritingDescriptions] = useState(false);
+  const [enhancedProjects, setEnhancedProjects] = useState<any[]>([]);
 
   useEffect(() => {
     if (open) {
+      // Reset all loading states when modal opens
+      setIsAnalyzing(false);
+      setIsAnalyzingSkills(false);
+      setIsAnalyzingProjects(false);
+      setIsRankingProjects(false);
+      
+      // Analyze resume structure (synchronous)
       analyzeResume();
-      // Always analyze projects (will use fallback if no targetRole)
-      analyzeSkillsAndProjects();
+      
+      // Analyze skills and projects (async - with timeout protection)
+      const timeoutId = setTimeout(() => {
+        analyzeSkillsAndProjects().catch(error => {
+          console.error('Error in analyzeSkillsAndProjects:', error);
+          // Reset loading states on error
+          setIsAnalyzingSkills(false);
+          setIsAnalyzingProjects(false);
+          setIsRankingProjects(false);
+        });
+      }, 100); // Small delay to let UI render first
+      
+      return () => {
+        clearTimeout(timeoutId);
+        // Reset states when modal closes
+        setIsAnalyzing(false);
+        setIsAnalyzingSkills(false);
+        setIsAnalyzingProjects(false);
+        setIsRankingProjects(false);
+      };
     }
-  }, [open, resumeData, targetRole, jobDescription]);
+  }, [open]); // Only depend on open, not on resumeData/targetRole to avoid infinite loops
 
   const analyzeResume = () => {
     setIsAnalyzing(true);
@@ -320,7 +346,7 @@ export function SmartResumeAnalysisModal({
     });
     
     return {
-      summary: `Ranked ${projects.length} projects based on completeness and relevance. Top 2-3 are recommended.`,
+      summary: `Ranked ${projects.length} projects based on completeness and relevance. Top 3 projects selected (ResumeItNow best practice).`,
       ranked_projects: ranked,
       projects_to_keep: ranked.slice(0, Math.min(3, ranked.length)).map(p => p.project_title),
     };
@@ -340,7 +366,7 @@ export function SmartResumeAnalysisModal({
     const fallbackRanking = createFallbackRanking(projects);
     setProjectRanking(fallbackRanking);
     
-    // Auto-select top 2-3 from fallback (prefer 3, but allow 2)
+    // Auto-select top 3 from fallback (exactly 3, as per ResumeItNow best practices)
     if (fallbackRanking && fallbackRanking.ranked_projects.length > 0) {
       const sortedProjects = fallbackRanking.ranked_projects;
       const topProjects = sortedProjects.slice(0, Math.min(3, sortedProjects.length));
@@ -359,12 +385,17 @@ export function SmartResumeAnalysisModal({
       const API_BASE = getAPIBase();
       const token = localStorage.getItem('access_token');
       
+      // Add timeout to prevent infinite loading
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      
       const response = await fetch(`${API_BASE}/resume/rank-best-projects`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
+        signal: controller.signal,
         body: JSON.stringify({
           projects: projects,
           target_role: targetRole,
@@ -373,19 +404,31 @@ export function SmartResumeAnalysisModal({
         }),
       });
 
+      clearTimeout(timeoutId);
+      
       if (response.ok) {
         const result = await response.json();
         if (result.ranked_projects && result.ranked_projects.length > 0) {
           setProjectRanking(result);
-          // Auto-select top 2-3 projects from AI ranking (prefer 3, but allow 2)
+          // Auto-select top 3 projects from AI ranking (exactly 3, as per ResumeItNow best practices)
           const sortedProjects = result.ranked_projects.sort((a: any, b: any) => (a.rank || 0) - (b.rank || 0));
           const topProjects = sortedProjects.slice(0, Math.min(3, sortedProjects.length));
-          const projectTitles = topProjects.map((p: any) => p.project_title);
-          setSelectedProjectsToKeep(new Set(projectTitles));
+          const projectTitles = new Set(topProjects.map((p: any) => p.project_title));
+          setSelectedProjectsToKeep(projectTitles);
+          
+          // Auto-enhance selected projects for preview
+          autoEnhanceSelectedProjects(projectTitles);
         }
+      } else {
+        console.warn('AI ranking failed, using fallback ranking');
       }
-    } catch (error) {
-      console.error('Error ranking projects with AI:', error);
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        console.warn('Project ranking request timed out, using fallback ranking');
+      } else {
+        console.error('Error ranking projects with AI:', error);
+      }
       // Keep fallback ranking if AI fails
     } finally {
       setIsRankingProjects(false);
@@ -394,10 +437,14 @@ export function SmartResumeAnalysisModal({
 
   // Analyze skills and projects using AI
   const analyzeSkillsAndProjects = async () => {
-    // Always rank projects (even without targetRole, will use fallback)
-    await rankBestProjects();
-    
-    if (!targetRole) return;
+    try {
+      // Always rank projects (even without targetRole, will use fallback)
+      await rankBestProjects();
+      
+      if (!targetRole) {
+        // If no target role, we're done after ranking projects
+        return;
+      }
 
     // Analyze skill gaps
     setIsAnalyzingSkills(true);
@@ -429,25 +476,38 @@ export function SmartResumeAnalysisModal({
       };
 
       const API_BASE = getAPIBase();
+      // Add timeout to prevent infinite loading
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      
       const response = await fetch(`${API_BASE}/resume/skill-gap-analysis`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
         },
+        signal: controller.signal,
         body: JSON.stringify({
           resume_data: resumeDataForAPI,
           target_role: targetRole,
           job_description: jobDescription,
         }),
       });
+      
+      clearTimeout(timeoutId);
 
       if (response.ok) {
         const analysis = await response.json();
         setSkillGapAnalysis(analysis);
+      } else {
+        console.warn('Skill gap analysis failed, continuing without it');
       }
-    } catch (error) {
-      console.error('Error analyzing skill gaps:', error);
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.warn('Skill gap analysis timed out');
+      } else {
+        console.error('Error analyzing skill gaps:', error);
+      }
     } finally {
       setIsAnalyzingSkills(false);
     }
@@ -470,6 +530,10 @@ export function SmartResumeAnalysisModal({
       const API_BASE = getAPIBase();
       const token = localStorage.getItem('access_token');
       
+      // Add timeout to prevent infinite loading
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      
       try {
         const response = await fetch(`${API_BASE}/resume/analyze-all-projects-relevance`, {
           method: 'POST',
@@ -477,12 +541,15 @@ export function SmartResumeAnalysisModal({
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
           },
+          signal: controller.signal,
           body: JSON.stringify({
             projects: projects,
             target_role: targetRole,
             job_description: jobDescription || undefined,
           }),
         });
+        
+        clearTimeout(timeoutId);
 
         if (response.ok) {
           const result = await response.json();
@@ -496,8 +563,13 @@ export function SmartResumeAnalysisModal({
         } else {
           throw new Error('API request failed');
         }
-      } catch (apiError) {
-        console.warn('AI project analysis failed, using enhanced heuristic fallback:', apiError);
+      } catch (apiError: any) {
+        clearTimeout(timeoutId);
+        if (apiError.name === 'AbortError') {
+          console.warn('Project analysis timed out, using enhanced heuristic fallback');
+        } else {
+          console.warn('AI project analysis failed, using enhanced heuristic fallback:', apiError);
+        }
         // Enhanced fallback heuristic (much better than before)
         const projectRelevance = await analyzeProjectsWithEnhancedHeuristic(projects, targetRole, jobDescription);
         setProjectAnalysis({
@@ -509,7 +581,15 @@ export function SmartResumeAnalysisModal({
     } catch (error) {
       console.error('Error analyzing projects:', error);
     } finally {
+      // Ensure loading state is reset even if there's an error
       setIsAnalyzingProjects(false);
+    }
+    } catch (error) {
+      console.error('Error in analyzeSkillsAndProjects:', error);
+      // Reset all loading states on error
+      setIsAnalyzingSkills(false);
+      setIsAnalyzingProjects(false);
+      setIsRankingProjects(false);
     }
   };
 
@@ -638,12 +718,125 @@ export function SmartResumeAnalysisModal({
     onOpenChange(false);
   };
 
-  // Rewrite descriptions for selected projects and update localStorage
+  // Auto-enhance selected projects and save to sessionStorage for preview
+  const autoEnhanceSelectedProjects = useCallback(async (selectedTitles: Set<string>) => {
+    if (selectedTitles.size === 0) {
+      // Clear enhanced projects if none selected
+      sessionStorage.removeItem('resume_enhanced_projects');
+      setEnhancedProjects([]);
+      return;
+    }
+
+    setIsRewritingDescriptions(true);
+    try {
+      const API_BASE = getAPIBase();
+      const token = localStorage.getItem('access_token');
+      
+      // Get selected projects from original data (preserve all fields including timeline)
+      const selectedProjects = (resumeData.projects || []).filter((p: any) => 
+        selectedTitles.has(p.project_title || p.title)
+      );
+      
+      if (selectedProjects.length === 0) {
+        sessionStorage.removeItem('resume_enhanced_projects');
+        setEnhancedProjects([]);
+        return;
+      }
+      
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      
+      const response = await fetch(`${API_BASE}/resume/rewrite-project-descriptions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          projects: selectedProjects,
+          target_role: targetRole || undefined,
+        }),
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const result = await response.json();
+        const rewrittenProjects = result.rewritten_projects || [];
+        
+        if (rewrittenProjects.length > 0) {
+          // Helper function to get project title consistently
+          const getProjectTitle = (proj: any) => proj.project_title || proj.title || '';
+          
+          // Get existing projects from localStorage to preserve all fields
+          const existingProjects = resumeStorage.load('projects_saved') || [];
+          const existingMap = new Map<string, any>();
+          existingProjects.forEach((proj: any) => {
+            const title = getProjectTitle(proj);
+            if (title) {
+              existingMap.set(title, proj);
+            }
+          });
+          
+          // Build final projects list: merge rewritten descriptions with existing project data
+          const finalProjects: any[] = [];
+          const titlesArray = Array.from(selectedTitles);
+          
+          for (const title of titlesArray) {
+            const rewritten = rewrittenProjects.find((rw: any) => 
+              getProjectTitle(rw) === title
+            );
+            const existing = existingMap.get(title);
+            
+            if (rewritten && existing) {
+              // Merge rewritten description with existing project data (preserve all other fields)
+              finalProjects.push({
+                ...existing,
+                description: rewritten.description || existing.description,
+                project_title: rewritten.project_title || existing.project_title || existing.title,
+                title: rewritten.project_title || existing.project_title || existing.title,
+              });
+            } else if (rewritten) {
+              // Use rewritten project if no existing found
+              finalProjects.push({
+                ...rewritten,
+                project_title: rewritten.project_title || rewritten.title,
+                title: rewritten.project_title || rewritten.title,
+              });
+            } else if (existing) {
+              // Fallback: use existing project
+              finalProjects.push(existing);
+            }
+          }
+          
+          // Save enhanced projects to sessionStorage for preview ONLY
+          sessionStorage.setItem('resume_enhanced_projects', JSON.stringify({
+            projects: finalProjects,
+            selectedTitles: titlesArray,
+            timestamp: Date.now(),
+          }));
+          
+          setEnhancedProjects(finalProjects);
+          
+          console.log('[SmartAnalysis] Auto-enhanced projects for preview:', finalProjects.length);
+        }
+      }
+    } catch (error) {
+      console.error('Error auto-enhancing project descriptions:', error);
+      // Don't show error toast - fail silently to not interrupt UX
+    } finally {
+      setIsRewritingDescriptions(false);
+    }
+  }, [resumeData.projects, targetRole]);
+
+  // OLD FUNCTION - DEPRECATED (kept for reference, not used)
   const handleRewriteSelectedProjects = async () => {
-    if (selectedProjectsToKeep.size < 2 || selectedProjectsToKeep.size > 3) {
+    if (selectedProjectsToKeep.size !== 3) {
       toast({
-        title: 'Select 2-3 Projects',
-        description: 'Please select 2-3 projects to proceed.',
+        title: 'Select Exactly 3 Projects',
+        description: 'Please select exactly 3 projects (ResumeItNow best practice) to proceed.',
         variant: 'destructive',
       });
       return null;
@@ -916,8 +1109,8 @@ export function SmartResumeAnalysisModal({
                         </div>
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
-                      <Badge variant={(selectedProjectsToKeep.size >= 2 && selectedProjectsToKeep.size <= 3) ? 'default' : 'secondary'} className="bg-white dark:bg-gray-800 font-semibold">
-                        {selectedProjectsToKeep.size} / 2-3
+                      <Badge variant={selectedProjectsToKeep.size === 3 ? 'default' : 'secondary'} className="bg-white dark:bg-gray-800 font-semibold">
+                        {selectedProjectsToKeep.size} / 3
                       </Badge>
                         {!isRankingProjects && targetRole && (
                           <Button
@@ -958,12 +1151,12 @@ export function SmartResumeAnalysisModal({
                                   ? 'border-2 border-purple-500 bg-purple-50 dark:bg-purple-950/30 shadow-md'
                                   : 'hover:border-purple-300 border hover:shadow-sm'
                               }`}
-                              onClick={() => {
+                              onClick={async () => {
                                 const newSelected = new Set(selectedProjectsToKeep);
                                 if (isSelected) {
                                   newSelected.delete(ranked.project_title);
                                 } else {
-                                  if (newSelected.size > 3) {
+                                  if (newSelected.size >= 3) {
                                     toast({
                                       title: 'Maximum 3 Projects',
                                       description: 'You can only select up to 3 projects. Please remove one first.',
@@ -974,6 +1167,14 @@ export function SmartResumeAnalysisModal({
                                   newSelected.add(ranked.project_title);
                                 }
                                 setSelectedProjectsToKeep(newSelected);
+                                
+                                // Auto-enhance selected projects for preview
+                                if (newSelected.size > 0) {
+                                  await autoEnhanceSelectedProjects(newSelected);
+                                } else {
+                                  sessionStorage.removeItem('resume_enhanced_projects');
+                                  setEnhancedProjects([]);
+                                }
                               }}
                             >
                               <CardContent className="p-4">
@@ -1013,7 +1214,7 @@ export function SmartResumeAnalysisModal({
                                           variant="ghost"
                                           size="sm"
                                           className="text-purple-600 hover:text-purple-700 shrink-0"
-                                          onClick={(e) => {
+                                          onClick={async (e) => {
                                             e.stopPropagation();
                                             if (selectedProjectsToKeep.size >= 3) {
                                               toast({
@@ -1026,6 +1227,9 @@ export function SmartResumeAnalysisModal({
                                             const newSelected = new Set(selectedProjectsToKeep);
                                             newSelected.add(ranked.project_title);
                                             setSelectedProjectsToKeep(newSelected);
+                                            
+                                            // Auto-enhance selected projects for preview
+                                            await autoEnhanceSelectedProjects(newSelected);
                                           }}
                                         >
                                           <Plus className="h-4 w-4" />
@@ -1071,11 +1275,19 @@ export function SmartResumeAnalysisModal({
                                         variant="outline"
                                         size="sm"
                                         className="text-destructive hover:text-destructive hover:bg-destructive/10 mt-1"
-                                        onClick={(e) => {
+                                        onClick={async (e) => {
                                           e.stopPropagation();
                                           const newSelected = new Set(selectedProjectsToKeep);
                                           newSelected.delete(ranked.project_title);
                                           setSelectedProjectsToKeep(newSelected);
+                                          
+                                          // Auto-enhance remaining selected projects for preview
+                                          if (newSelected.size > 0) {
+                                            await autoEnhanceSelectedProjects(newSelected);
+                                          } else {
+                                            sessionStorage.removeItem('resume_enhanced_projects');
+                                            setEnhancedProjects([]);
+                                          }
                                         }}
                                       >
                                         <X className="h-3 w-3 mr-1" />
@@ -1098,16 +1310,16 @@ export function SmartResumeAnalysisModal({
                     )}
 
                     {selectedProjectsToKeep.size > 0 && (
-                      <Alert className={(selectedProjectsToKeep.size >= 2 && selectedProjectsToKeep.size <= 3) ? 'bg-green-50 dark:bg-green-950/20 border-green-200' : 'bg-amber-50 dark:bg-amber-950/20 border-amber-200'}>
-                        <CheckCircle2 className={`h-4 w-4 ${(selectedProjectsToKeep.size >= 2 && selectedProjectsToKeep.size <= 3) ? 'text-green-600' : 'text-amber-600'}`} />
-                        <AlertDescription className={`text-sm ${(selectedProjectsToKeep.size >= 2 && selectedProjectsToKeep.size <= 3) ? 'text-green-800 dark:text-green-200' : 'text-amber-800 dark:text-amber-200'}`}>
-                          {(selectedProjectsToKeep.size >= 2 && selectedProjectsToKeep.size <= 3) ? (
+                      <Alert className={selectedProjectsToKeep.size === 3 ? 'bg-green-50 dark:bg-green-950/20 border-green-200' : 'bg-amber-50 dark:bg-amber-950/20 border-amber-200'}>
+                        <CheckCircle2 className={`h-4 w-4 ${selectedProjectsToKeep.size === 3 ? 'text-green-600' : 'text-amber-600'}`} />
+                        <AlertDescription className={`text-sm ${selectedProjectsToKeep.size === 3 ? 'text-green-800 dark:text-green-200' : 'text-amber-800 dark:text-amber-200'}`}>
+                          {selectedProjectsToKeep.size === 3 ? (
                             <>
-                              <strong>Perfect! {selectedProjectsToKeep.size} project(s) selected.</strong> Click the button below to enhance descriptions (exactly 3 sentences each) and update your resume.
+                              <strong>Perfect! 3 projects selected (ResumeItNow best practice).</strong> Projects are being automatically enhanced with professional 3-sentence descriptions optimized for your target role.
                             </>
                           ) : (
                             <>
-                              <strong>{selectedProjectsToKeep.size} project(s) selected.</strong> Please select <strong>2-3 projects</strong> to proceed. Selected projects will have AI-enhanced descriptions (exactly 3 sentences each).
+                              <strong>{selectedProjectsToKeep.size} project(s) selected.</strong> Please select <strong>exactly 3 projects (ResumeItNow best practice)</strong> to proceed. Selected projects will have AI-enhanced descriptions (exactly 3 sentences each).
                             </>
                           )}
                         </AlertDescription>
@@ -1430,39 +1642,22 @@ export function SmartResumeAnalysisModal({
         {/* Action Buttons - Fixed at bottom */}
         {!(isAnalyzing || isAnalyzingSkills || isAnalyzingProjects || isRankingProjects) && (
           <div className="border-t bg-background px-6 py-4 space-y-3 flex-shrink-0">
-              {/* Project Ranking Actions */}
+              {/* Auto-enhancement status */}
               {projectRanking && selectedProjectsToKeep.size > 0 && (
-                <Button
-                  onClick={async () => {
-                    if (selectedProjectsToKeep.size < 2 || selectedProjectsToKeep.size > 3) {
-                      toast({
-                        title: 'Select 2-3 Projects',
-                        description: 'Please select 2-3 projects to proceed.',
-                        variant: 'destructive',
-                      });
-                      return;
-                    }
-                    const rewrittenProjects = await handleRewriteSelectedProjects();
-                    if (rewrittenProjects) {
-                      onOpenChange(false);
-                    }
-                  }}
-                  disabled={isRewritingDescriptions || selectedProjectsToKeep.size < 2 || selectedProjectsToKeep.size > 3}
-                  size="lg"
-                  className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                >
+                <Alert className={isRewritingDescriptions ? "bg-blue-50 dark:bg-blue-950/20 border-blue-200" : "bg-green-50 dark:bg-green-950/20 border-green-200"}>
                   {isRewritingDescriptions ? (
-                    <>
-                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                      AI-Enhancing Descriptions...
-                    </>
+                    <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />
                   ) : (
-                    <>
-                      <CheckCircle2 className="mr-2 h-5 w-5" />
-                      Keep {selectedProjectsToKeep.size} Selected Project{selectedProjectsToKeep.size > 1 ? 's' : ''} & AI-Enhance Descriptions (3 Sentences Each)
-                    </>
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
                   )}
-                </Button>
+                  <AlertDescription className={isRewritingDescriptions ? "text-sm text-blue-800 dark:text-blue-200" : "text-sm text-green-800 dark:text-green-200"}>
+                    {isRewritingDescriptions ? (
+                      <>AI is enhancing {selectedProjectsToKeep.size} selected project{selectedProjectsToKeep.size > 1 ? 's' : ''} with professional 3-sentence descriptions...</>
+                    ) : (
+                      <>{selectedProjectsToKeep.size} project{selectedProjectsToKeep.size > 1 ? 's' : ''} selected and enhanced. Enhanced descriptions will appear in preview.</>
+                    )}
+                  </AlertDescription>
+                </Alert>
               )}
 
               {/* Project Suggestions */}
@@ -1517,5 +1712,5 @@ export function SmartResumeAnalysisModal({
       </DialogContent>
     </Dialog>
   );
-}
+});
 

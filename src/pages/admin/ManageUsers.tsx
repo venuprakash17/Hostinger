@@ -84,7 +84,7 @@ export default function ManageUsers() {
     department: "",
     section: "",
     roll_number: "",
-    subject_assignments: [] as Array<{ subject_id: number; semester_id?: number; section?: string; section_id?: number }>,
+    subject_assignments: [] as Array<{ subject_id: number; semester_id?: number }>,
     handled_years: [] as string[],
     handled_sections: [] as string[],
   });
@@ -95,7 +95,7 @@ export default function ManageUsers() {
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [colleges, setColleges] = useState<any[]>([]);
   const [sections, setSections] = useState<any[]>([]);
-  const [subjectAssignments, setSubjectAssignments] = useState<Array<{ subject_id: number; semester_id?: number; section?: string; section_id?: number }>>([]);
+  const [subjectAssignments, setSubjectAssignments] = useState<Array<{ subject_id: number; semester_id?: number }>>([]);
   const [handledYears, setHandledYears] = useState<string[]>([]);
   const [handledSections, setHandledSections] = useState<string[]>([]);
   const [reassignToFacultyId, setReassignToFacultyId] = useState<number | null>(null);
@@ -115,6 +115,17 @@ export default function ManageUsers() {
     });
     return Array.from(names).sort();
   }, [sections]);
+
+  // Memoize filtered users for better performance - MUST be at component top level
+  const filteredUsers = useMemo(() => {
+    const searchLower = debouncedSearchTerm.toLowerCase();
+    return users.filter(user => 
+      !debouncedSearchTerm || 
+      user.email.toLowerCase().includes(searchLower) ||
+      (user.full_name?.toLowerCase().includes(searchLower)) ||
+      (user.roll_number?.toLowerCase().includes(searchLower))
+    );
+  }, [users, debouncedSearchTerm]);
 
   // Helper function to get filtered sections for a subject assignment
   const getFilteredSections = (assignment: { subject_id?: number; semester_id?: number }) => {
@@ -331,20 +342,17 @@ useEffect(() => {
     if (user.roles.some(r => r.role === 'faculty')) {
       try {
         const assignments = await apiClient.getSubjectAssignments(user.id);
+        // Remove section_id and section - faculty now works at department level only
         subjectAssignments = (assignments || []).map((a: any) => ({
           subject_id: a.subject_id,
           semester_id: a.semester_id,
-          section: a.section,
-          section_id: a.section_id,
         }));
       } catch (error) {
         console.error('Error fetching subject assignments:', error);
       }
     }
     
-    // Get handled_years and handled_sections from user object (now included in API response)
-    const handledYears = user.handled_years || [];
-    const handledSections = user.handled_sections || [];
+    // Years Handled removed - college admin cannot set this
     
     setEditFormData({
       full_name: user.full_name || "",
@@ -352,8 +360,8 @@ useEffect(() => {
       section: user.section || "",
       roll_number: user.roll_number || "",
       subject_assignments: subjectAssignments,
-      handled_years: handledYears,
-      handled_sections: handledSections,
+      handled_years: [], // Removed - college admin cannot set this
+      handled_sections: [], // Removed - faculty works at department level only
     });
     // Reset reassign state when opening dialog
     setReassignToFacultyId(null);
@@ -464,11 +472,7 @@ useEffect(() => {
         payload.subject_assignments = subjectAssignments;
       }
       
-      // Add handled years and sections for faculty/HOD
-      if ((role === 'faculty' || role === 'hod') && (handledYears.length > 0 || handledSections.length > 0)) {
-        payload.handled_years = handledYears.length > 0 ? handledYears : undefined;
-        payload.handled_sections = handledSections.length > 0 ? handledSections : undefined;
-      }
+      // Years Handled removed - college admin cannot set this
       
       // Only include password if provided
       if (password) {
@@ -487,8 +491,6 @@ useEffect(() => {
         setRollNumber("");
       setRole("faculty");
       setSubjectAssignments([]);
-      setHandledYears([]);
-      setHandledSections([]);
       setSelectedCollegeId(null);
       fetchUsers();
     } catch (error: any) {
@@ -669,28 +671,6 @@ useEffect(() => {
 
                 {(role === 'hod' || role === 'faculty') && (
                   <>
-                    <div className="space-y-2">
-                      <Label>Years Handled (e.g., 1st, 2nd, 3rd)</Label>
-                      <div className="flex flex-wrap gap-2">
-                        {['1st', '2nd', '3rd', '4th', '5th'].map((year) => (
-                          <Button
-                            key={year}
-                            type="button"
-                            variant={handledYears.includes(year) ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => {
-                              if (handledYears.includes(year)) {
-                                setHandledYears(handledYears.filter(y => y !== year));
-                              } else {
-                                setHandledYears([...handledYears, year]);
-                              }
-                            }}
-                          >
-                            {year}
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
 
                     {sectionNameOptions.length > 0 && (
                     <div className="space-y-2">
@@ -841,7 +821,7 @@ useEffect(() => {
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => setSubjectAssignments([...subjectAssignments, { subject_id: 0, section: "", section_id: undefined }])}
+                      onClick={() => setSubjectAssignments([...subjectAssignments, { subject_id: 0 }])}
                     >
                       + Add Subject Assignment
                     </Button>
@@ -982,19 +962,7 @@ useEffect(() => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {(() => {
-                        // Memoize filtered users for better performance
-                        const filteredUsers = useMemo(() => {
-                          const searchLower = debouncedSearchTerm.toLowerCase();
-                          return users.filter(user => 
-                            !debouncedSearchTerm || 
-                            user.email.toLowerCase().includes(searchLower) ||
-                            (user.full_name?.toLowerCase().includes(searchLower)) ||
-                            (user.roll_number?.toLowerCase().includes(searchLower))
-                          );
-                        }, [users, debouncedSearchTerm]);
-                        
-                        return filteredUsers.map((user) => (
+                      {filteredUsers.map((user) => (
                           <TableRow key={user.id}>
                             <TableCell className="font-medium">
                               {user.full_name || "N/A"}
@@ -1008,18 +976,19 @@ useEffect(() => {
                             <TableCell>{user.department || "N/A"}</TableCell>
                             <TableCell>{user.roll_number || "N/A"}</TableCell>
                             <TableCell className="text-right">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleOpenEditDialog(user)}
-                              >
-                                <Edit className="h-4 w-4 mr-2" />
-                                Edit
-                              </Button>
+                              {isSuperAdmin && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleOpenEditDialog(user)}
+                                >
+                                  <Edit className="h-4 w-4 mr-2" />
+                                  Edit
+                                </Button>
+                              )}
                             </TableCell>
                           </TableRow>
-                        ));
-                      })()}
+                        ))}
                     </TableBody>
                   </Table>
                 )}
@@ -1196,61 +1165,9 @@ useEffect(() => {
                         <h3 className="text-lg font-semibold">Teaching Assignments</h3>
                       </div>
 
-                      {/* Years Handled */}
-                      <div className="space-y-3">
-                        <Label className="text-sm font-medium">Years Handled</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {['1st', '2nd', '3rd', '4th', '5th'].map((year) => (
-                      <Button
-                        key={year}
-                        type="button"
-                        variant={editFormData.handled_years.includes(year) ? "default" : "outline"}
-                        size="sm"
-                              className="h-9 px-4"
-                        onClick={() => {
-                          const updated = editFormData.handled_years.includes(year)
-                            ? editFormData.handled_years.filter(y => y !== year)
-                            : [...editFormData.handled_years, year];
-                          setEditFormData({ ...editFormData, handled_years: updated });
-                        }}
-                      >
-                              {year} Year
-                      </Button>
-                    ))}
-                  </div>
-                        {editFormData.handled_years.length === 0 && (
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
-                            <AlertCircle className="h-3 w-3" />
-                            No years selected. Select the years this faculty member handles.
-                          </p>
-                        )}
-                </div>
+                      {/* Years Handled removed - college admin cannot set this */}
 
-                      {/* Sections Handled */}
-                {sectionNameOptions.length > 0 && (
-                        <div className="space-y-3">
-                          <Label className="text-sm font-medium">Sections Handled</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {sectionNameOptions.map((sec) => (
-                        <Button
-                          key={sec}
-                          type="button"
-                          variant={editFormData.handled_sections.includes(sec) ? "default" : "outline"}
-                          size="sm"
-                                className="h-9 px-4"
-                          onClick={() => {
-                            const updated = editFormData.handled_sections.includes(sec)
-                              ? editFormData.handled_sections.filter(s => s !== sec)
-                              : [...editFormData.handled_sections, sec];
-                            setEditFormData({ ...editFormData, handled_sections: updated });
-                          }}
-                        >
-                                Section {sec}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                      {/* Note: Sections Handled removed - Faculty now works at department level only */}
                     </div>
 
                     <Separator />
@@ -1271,7 +1188,7 @@ useEffect(() => {
                             size="sm"
                             onClick={() => setEditFormData({ 
                               ...editFormData, 
-                              subject_assignments: [...editFormData.subject_assignments, { subject_id: 0, section: "", section_id: undefined }]
+                              subject_assignments: [...editFormData.subject_assignments, { subject_id: 0 }]
                             })}
                             className="h-9"
                           >
@@ -1329,14 +1246,6 @@ useEffect(() => {
                         onValueChange={(value) => {
                           const updated = [...editFormData.subject_assignments];
                           updated[index].semester_id = value && value !== "none" ? parseInt(value) : undefined;
-                          if (updated[index].section_id) {
-                            const filteredSections = getFilteredSections(updated[index]);
-                            const currentSection = filteredSections.find((s: any) => s.id === updated[index].section_id);
-                            if (!currentSection) {
-                              updated[index].section_id = undefined;
-                              updated[index].section = "";
-                            }
-                          }
                           setEditFormData({ ...editFormData, subject_assignments: updated });
                         }}
                       >
@@ -1353,47 +1262,7 @@ useEffect(() => {
                         </SelectContent>
                       </Select>
                     </div>
-                                    <div className="space-y-2">
-                                      <Label className="text-xs font-medium text-muted-foreground">Section</Label>
-                      <Select
-                        value={assignment.section_id?.toString() || "none"}
-                        onValueChange={(value) => {
-                          const updated = [...editFormData.subject_assignments];
-                          if (value && value !== "none") {
-                            const sectionObj = sections.find((section: any) => section.id.toString() === value);
-                            updated[index].section_id = parseInt(value, 10);
-                            updated[index].section = sectionObj?.name || "";
-                          } else {
-                            updated[index].section_id = undefined;
-                            updated[index].section = "";
-                          }
-                          setEditFormData({ ...editFormData, subject_assignments: updated });
-                        }}
-                        disabled={!assignment.subject_id}
-                      >
-                                        <SelectTrigger className="h-9">
-                          <SelectValue placeholder={assignment.subject_id ? "Select Section" : "Select subject first"} />
-                        </SelectTrigger>
-                        <SelectContent>
-                                          <SelectItem value="none">All Sections</SelectItem>
-                          {getFilteredSections(assignment).length > 0 ? (
-                            getFilteredSections(assignment).map((section: any) => (
-                              <SelectItem key={section.id} value={section.id.toString()}>
-                                {section.name}
-                                {section.year ? ` (Year ${section.year})` : ''}
-                                {section.department_name ? ` - ${section.department_name}` : ''}
-                                {section.semester_name ? ` - ${section.semester_name}` : ''}
-                              </SelectItem>
-                            ))
-                          ) : assignment.subject_id ? (
-                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                              No sections available
-                            </div>
-                          ) : null}
-                        </SelectContent>
-                      </Select>
-                                    </div>
-                    </div>
+                                  </div>
                     <Button
                       type="button"
                       variant="ghost"

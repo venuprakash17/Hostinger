@@ -46,7 +46,7 @@ interface StaffMember {
 }
 
 export default function ManageStaff() {
-  const { isAdmin, isHOD, loading: roleLoading } = useUserRole();
+  const { isAdmin, isHOD, isSuperAdmin, loading: roleLoading } = useUserRole();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -311,11 +311,8 @@ export default function ManageStaff() {
         }
       }
       
-      // Add handled years and sections for faculty/HOD
-      if (selectedStaff.roles.some(r => r.role === 'faculty' || r.role === 'hod')) {
-        payload.handled_years = editFormData.handled_years;
-        payload.handled_sections = editFormData.handled_sections;
-      }
+      // Years Handled removed - college admin cannot set this
+      // Sections handled also removed - faculty works at department level only
 
       await apiClient.put(`/users/${selectedStaff.id}`, payload);
       toast.success("Staff member updated successfully!");
@@ -365,11 +362,8 @@ export default function ManageStaff() {
         }
       }
       
-      // Add handled years and sections
-      if (handledYears.length > 0 || handledSections.length > 0) {
-        payload.handled_years = handledYears.length > 0 ? handledYears : undefined;
-        payload.handled_sections = handledSections.length > 0 ? handledSections : undefined;
-      }
+      // Years Handled removed - college admin cannot set this
+      // Sections handled also removed - faculty works at department level only
       
       // Only include password if provided
       if (password) {
@@ -429,7 +423,9 @@ export default function ManageStaff() {
       <Tabs defaultValue="view" className="space-y-4">
         <TabsList>
           <TabsTrigger value="view">View Staff</TabsTrigger>
-          <TabsTrigger value="create">Create Staff</TabsTrigger>
+          {isSuperAdmin && (
+            <TabsTrigger value="create">Create Staff</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="view" className="space-y-4">
@@ -482,13 +478,15 @@ export default function ManageStaff() {
                         </TableCell>
                         <TableCell>{member.department || "N/A"}</TableCell>
                         <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleOpenEditDialog(member)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
+                          {isSuperAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleOpenEditDialog(member)}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))
@@ -1018,27 +1016,7 @@ export default function ManageStaff() {
 
             {selectedStaff && (selectedStaff.roles.some(r => r.role === 'faculty') || selectedStaff.roles.some(r => r.role === 'hod')) && (
               <>
-                <div className="space-y-2">
-                  <Label>Years Handled</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {['1st', '2nd', '3rd', '4th', '5th'].map((year) => (
-                      <Button
-                        key={year}
-                        type="button"
-                        variant={editFormData.handled_years.includes(year) ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => {
-                          const updated = editFormData.handled_years.includes(year)
-                            ? editFormData.handled_years.filter(y => y !== year)
-                            : [...editFormData.handled_years, year];
-                          setEditFormData({ ...editFormData, handled_years: updated });
-                        }}
-                      >
-                        {year}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
+                {/* Years Handled removed - college admin cannot set this */}
 
                 {sectionNameOptions.length > 0 && (
                   <div className="space-y-2">

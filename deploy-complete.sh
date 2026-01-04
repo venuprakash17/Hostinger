@@ -1,0 +1,203 @@
+#!/bin/bash
+
+# 🚀 Complete End-to-End Production Deployment Script
+# Single command deployment for svnaprojob.online
+# Usage: cd /path/to/elevate-edu-ui && ./deploy-complete.sh
+# This script handles everything: git, build, upload, and server setup
+
+set -e  # Exit on any error
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║  🚀 Complete Production Deployment - svnaprojob.online   ║${NC}"
+echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+
+# Configuration
+DOMAIN="svnaprojob.online"
+SERVER_USER="root"
+SERVER_HOST="72.60.101.14"
+SERVER_PATH="/root/elevate-edu"
+FRONTEND_PATH="/var/www/elevate-edu-ui"
+
+# Step 1: Verify we're in the right directory
+echo -e "${YELLOW}📁 Step 1: Verifying project directory...${NC}"
+if [ ! -f "package.json" ] || [ ! -d "backend" ]; then
+    echo -e "${RED}❌ Error: Must run from project root directory${NC}"
+    echo "   Current directory: $(pwd)"
+    exit 1
+fi
+echo -e "${GREEN}✅ Project directory verified${NC}"
+echo ""
+
+# Step 2: Check for uncommitted changes
+echo -e "${YELLOW}📝 Step 2: Checking git status...${NC}"
+if [ -n "$(git status --porcelain)" ]; then
+    echo -e "${YELLOW}⚠️  Uncommitted changes detected. Committing all changes...${NC}"
+    git add .
+    git commit -m "Production deployment: svnaprojob.online - Complete placement module with all services" || true
+fi
+echo -e "${GREEN}✅ Git status checked${NC}"
+echo ""
+
+# Step 3: Push to repository
+echo -e "${YELLOW}📤 Step 3: Pushing to repository...${NC}"
+git push origin main || git push origin master || echo -e "${YELLOW}⚠️  Git push skipped (may already be up to date)${NC}"
+echo -e "${GREEN}✅ Code pushed${NC}"
+echo ""
+
+# Step 4: Install/Update dependencies
+echo -e "${YELLOW}📦 Step 4: Installing dependencies...${NC}"
+if [ ! -d "node_modules" ]; then
+    npm install
+else
+    npm install --prefer-offline --silent
+fi
+echo -e "${GREEN}✅ Dependencies installed${NC}"
+echo ""
+
+# Step 5: Build frontend for production
+echo -e "${YELLOW}🔨 Step 5: Building frontend for production...${NC}"
+export VITE_API_BASE_URL="https://${DOMAIN}/api/v1"
+export VITE_WS_BASE_URL="wss://${DOMAIN}"
+export NODE_ENV=production
+
+npm run build
+
+if [ ! -d "dist" ]; then
+    echo -e "${RED}❌ Build failed! dist folder not found.${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✅ Frontend build successful${NC}"
+echo ""
+
+# Step 6: Create backup on server
+echo -e "${YELLOW}💾 Step 6: Creating backup on server...${NC}"
+ssh ${SERVER_USER}@${SERVER_HOST} << ENDSSH
+    cd ${SERVER_PATH}
+    if [ -d dist ]; then
+        BACKUP_DIR="dist.backup.\$(date +%Y%m%d_%H%M%S)"
+        cp -r dist "\$BACKUP_DIR"
+        echo "Backup created: \$BACKUP_DIR"
+    fi
+ENDSSH
+echo -e "${GREEN}✅ Backup created${NC}"
+echo ""
+
+# Step 7: Upload frontend
+echo -e "${YELLOW}📤 Step 7: Uploading frontend files...${NC}"
+rsync -avz --delete --progress dist/ ${SERVER_USER}@${SERVER_HOST}:${FRONTEND_PATH}/dist/
+echo -e "${GREEN}✅ Frontend uploaded${NC}"
+echo ""
+
+# Step 8: Upload backend
+echo -e "${YELLOW}📤 Step 8: Uploading backend files...${NC}"
+rsync -avz --progress \
+    --exclude 'venv' \
+    --exclude '__pycache__' \
+    --exclude '*.pyc' \
+    --exclude '.env' \
+    --exclude '*.db' \
+    --exclude '*.sqlite' \
+    --exclude 'uploads' \
+    --exclude 'data' \
+    backend/ ${SERVER_USER}@${SERVER_HOST}:${SERVER_PATH}/backend/
+echo -e "${GREEN}✅ Backend uploaded${NC}"
+echo ""
+
+# Step 9: Setup and restart services on server
+echo -e "${YELLOW}🔧 Step 9: Setting up services on server...${NC}"
+ssh ${SERVER_USER}@${SERVER_HOST} << 'ENDSSH'
+    cd /root/elevate-edu
+    
+    # Ensure backend .env exists (don't overwrite if it exists)
+    if [ ! -f backend/.env ]; then
+        if [ -f backend/env.production.example ]; then
+            echo "Creating backend/.env from example..."
+            cp backend/env.production.example backend/.env
+            echo "⚠️  IMPORTANT: Edit backend/.env with your actual values:"
+            echo "   - DATABASE_URL"
+            echo "   - SECRET_KEY (generate with: openssl rand -hex 32)"
+            echo "   - OPENAI_API_KEY (optional, for AI features)"
+        else
+            echo "⚠️  backend/.env not found and no example file available"
+        fi
+    fi
+    
+    # Restart backend service
+    echo "Restarting backend service..."
+    if command -v docker-compose &> /dev/null; then
+        docker-compose restart backend || docker-compose up -d --build backend
+    elif command -v docker &> /dev/null && [ -f docker-compose.yml ]; then
+        docker compose restart backend || docker compose up -d --build backend
+    else
+        # If using systemd service
+        systemctl restart elevate-edu-backend 2>/dev/null || echo "⚠️  Could not restart backend service"
+    fi
+    
+    # Wait for backend to start
+    sleep 3
+    
+    # Reload nginx
+    echo "Reloading nginx..."
+    if nginx -t 2>/dev/null; then
+        systemctl reload nginx || systemctl restart nginx
+        echo "✅ Nginx reloaded"
+    else
+        echo "⚠️  Nginx configuration test failed"
+    fi
+    
+    echo "✅ Server setup complete"
+ENDSSH
+echo -e "${GREEN}✅ Services restarted${NC}"
+echo ""
+
+# Step 10: Verify deployment
+echo -e "${YELLOW}🧪 Step 10: Verifying deployment...${NC}"
+sleep 5
+
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://${DOMAIN} 2>/dev/null || echo "000")
+API_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://${DOMAIN}/api/v1/health 2>/dev/null || echo "000")
+AI_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://${DOMAIN}/api/v1/mock-interview-ai/health 2>/dev/null || echo "000")
+
+echo ""
+echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
+if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "301" ] || [ "$HTTP_CODE" = "302" ]; then
+    echo -e "${GREEN}║  ✅ Deployment Successful!                            ║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${GREEN}🌐 Your application is live at:${NC}"
+    echo -e "   ${BLUE}https://${DOMAIN}${NC}"
+    echo ""
+    if [ "$API_CODE" = "200" ]; then
+        echo -e "${GREEN}✅ API Health Check: PASSED${NC}"
+    else
+        echo -e "${YELLOW}⚠️  API Health Check: ${API_CODE} (may need a moment to start)${NC}"
+    fi
+    
+    if [ "$AI_CODE" = "200" ]; then
+        echo -e "${GREEN}✅ AI Services Check: PASSED${NC}"
+    else
+        echo -e "${YELLOW}⚠️  AI Services Check: ${AI_CODE} (Ollama may need setup on server)${NC}"
+    fi
+else
+    echo -e "${YELLOW}║  ⚠️  Deployment completed, but verification returned ${HTTP_CODE}  ║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${YELLOW}Please verify manually:${NC}"
+    echo -e "   ${BLUE}https://${DOMAIN}${NC}"
+fi
+echo ""
+echo -e "${BLUE}📋 Next Steps:${NC}"
+echo "   1. Verify SSL certificate is installed"
+echo "   2. Test all features (login, jobs, placement, resume, AI interview)"
+echo "   3. Check logs: ssh ${SERVER_USER}@${SERVER_HOST} 'docker-compose logs -f backend'"
+echo "   4. Monitor: ssh ${SERVER_USER}@${SERVER_HOST} 'tail -f /var/log/nginx/error.log'"
+echo ""
+echo -e "${GREEN}🎉 Deployment process completed!${NC}"

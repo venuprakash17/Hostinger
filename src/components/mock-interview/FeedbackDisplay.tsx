@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { CheckCircle2, XCircle, Lightbulb, ArrowRight, TrendingUp } from 'lucide-react';
+import { CheckCircle2, XCircle, Lightbulb, ArrowRight, TrendingUp, RotateCcw, Star, Award } from 'lucide-react';
 
 interface FeedbackDisplayProps {
   question: { question: string; questionType: string; questionNumber: number; totalQuestions: number };
@@ -19,11 +19,15 @@ interface FeedbackDisplayProps {
     weaknesses: string[];
     missing_points: string[];
     improved_answer: string;
+    best_answer: string; // Ideal answer
     communication_tips: string[];
   };
   questionNumber: number;
   totalQuestions: number;
+  attemptNumber?: number;
+  previousScore?: number;
   onContinue: () => void;
+  onRetry?: () => void;
 }
 
 export function FeedbackDisplay({
@@ -32,10 +36,15 @@ export function FeedbackDisplay({
   analysis,
   questionNumber,
   totalQuestions,
+  attemptNumber = 1,
+  previousScore,
   onContinue,
+  onRetry,
 }: FeedbackDisplayProps) {
   const scorePercentage = (analysis.score / 5) * 100;
   const scoreColor = scorePercentage >= 80 ? 'text-green-600' : scorePercentage >= 60 ? 'text-yellow-600' : 'text-red-600';
+  const hasImproved = previousScore !== undefined && analysis.score > previousScore;
+  const improvement = previousScore !== undefined ? (analysis.score - previousScore).toFixed(1) : null;
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -52,11 +61,36 @@ export function FeedbackDisplay({
         <CardContent className="space-y-6">
           {/* Score Display */}
           <div className="text-center space-y-2">
-            <div className={`text-5xl font-bold ${scoreColor}`}>
-              {analysis.score.toFixed(1)}/5.0
+            <div className="flex items-center justify-center gap-3">
+              <div className={`text-5xl font-bold ${scoreColor}`}>
+                {analysis.score.toFixed(1)}/5.0
+              </div>
+              {attemptNumber > 1 && (
+                <Badge variant={hasImproved ? "default" : "secondary"} className="text-sm">
+                  Attempt {attemptNumber}
+                  {hasImproved && improvement && (
+                    <span className="ml-1 text-green-600">+{improvement}</span>
+                  )}
+                </Badge>
+              )}
             </div>
             <Progress value={scorePercentage} className="w-full" />
-            <p className="text-sm text-muted-foreground">Overall Answer Quality</p>
+            <div className="flex items-center justify-center gap-4 text-sm">
+              <p className="text-muted-foreground">Overall Answer Quality</p>
+              {previousScore !== undefined && (
+                <p className={`text-xs ${hasImproved ? 'text-green-600' : 'text-muted-foreground'}`}>
+                  Previous: {previousScore.toFixed(1)}/5.0
+                </p>
+              )}
+            </div>
+            {hasImproved && (
+              <Alert className="bg-green-50 dark:bg-green-950/20 border-green-200 mt-2">
+                <TrendingUp className="h-4 w-4 text-green-600" />
+                <AlertDescription className="text-green-800 dark:text-green-200">
+                  Great improvement! Your score increased by {improvement} points.
+                </AlertDescription>
+              </Alert>
+            )}
           </div>
 
           {/* Question & Answer */}
@@ -116,13 +150,35 @@ export function FeedbackDisplay({
             </Alert>
           )}
 
-          {/* Improved Answer */}
+          {/* Best Answer - Ideal Answer */}
+          {analysis.best_answer && (
+            <Card className="border-2 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                  <Award className="h-5 w-5" />
+                  Best Answer (Ideal Response)
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
+                  This is the ideal answer that demonstrates excellent understanding and professionalism
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="bg-white dark:bg-gray-900 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                    {analysis.best_answer}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Improved Answer - How to improve your answer */}
           {analysis.improved_answer && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <TrendingUp className="h-5 w-5" />
-                  Improved Answer Example
+                  How to Improve Your Answer
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -148,24 +204,49 @@ export function FeedbackDisplay({
             </Alert>
           )}
 
-          {/* Continue Button */}
-          <Button
-            onClick={onContinue}
-            className="w-full"
-            size="lg"
-          >
-            {questionNumber < totalQuestions ? (
-              <>
-                Continue to Next Question
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </>
-            ) : (
-              <>
-                View Final Report
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </>
+          {/* Action Buttons */}
+          <div className="flex gap-3">
+            {onRetry && (
+              <Button
+                onClick={onRetry}
+                variant="outline"
+                className="flex-1"
+                size="lg"
+              >
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Retry This Question
+              </Button>
             )}
-          </Button>
+            <Button
+              onClick={onContinue}
+              className={onRetry ? "flex-1" : "w-full"}
+              size="lg"
+            >
+              {questionNumber < totalQuestions ? (
+                <>
+                  Continue to Next Question
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </>
+              ) : (
+                <>
+                  View Final Report
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </>
+              )}
+            </Button>
+          </div>
+          
+          {onRetry && analysis.score < 4.0 && (
+            <Alert className="bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200">
+              <Lightbulb className="h-4 w-4 text-yellow-600" />
+              <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+                <p className="font-semibold mb-1">💡 Tip: Want to improve your score?</p>
+                <p className="text-sm">
+                  Review the "Best Answer" above and try again. Practice makes perfect!
+                </p>
+              </AlertDescription>
+            </Alert>
+          )}
         </CardContent>
       </Card>
     </div>

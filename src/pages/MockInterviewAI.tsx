@@ -3,7 +3,7 @@
  * 100% FREE - Uses Browser Speech API + Ollama
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,17 +15,20 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Mic, MicOff, Volume2, CheckCircle2, XCircle, Download, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { SetupScreen } from '@/components/mock-interview/SetupScreen';
+import { InterviewWelcome } from '@/components/mock-interview/InterviewWelcome';
+import { QuestionsPreview } from '@/components/mock-interview/QuestionsPreview';
 import { InterviewScreen } from '@/components/mock-interview/InterviewScreen';
 import { FeedbackDisplay } from '@/components/mock-interview/FeedbackDisplay';
 import { FinalReport } from '@/components/mock-interview/FinalReport';
 
-type InterviewStage = 'setup' | 'interview' | 'feedback' | 'final';
+type InterviewStage = 'setup' | 'welcome' | 'preview' | 'interview' | 'feedback' | 'final';
 
 interface InterviewData {
   jobRole: string;
   companyName: string;
   jobDescription: string;
   experienceLevel: string;
+  interviewRound: string;
   resumeData: any;
 }
 
@@ -42,6 +45,7 @@ interface AnswerAnalysis {
   weaknesses: string[];
   missing_points: string[];
   improved_answer: string;
+  best_answer: string; // Ideal answer for this question
   communication_tips: string[];
 }
 
@@ -50,58 +54,170 @@ interface InterviewAnswer {
   answer: string;
   analysis: AnswerAnalysis;
   questionNumber: number;
+  attemptNumber?: number;
 }
 
 export default function MockInterviewAI() {
   const [stage, setStage] = useState<InterviewStage>('setup');
   const [interviewData, setInterviewData] = useState<InterviewData | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState<QuestionData | null>(null);
+  const [allQuestions, setAllQuestions] = useState<QuestionData[]>([]); // Store all questions
   const [currentAnswer, setCurrentAnswer] = useState<string>('');
   const [currentAnalysis, setCurrentAnalysis] = useState<AnswerAnalysis | null>(null);
   const [allAnswers, setAllAnswers] = useState<InterviewAnswer[]>([]);
+  const [questionAttempts, setQuestionAttempts] = useState<Map<number, number>>(new Map()); // Track attempts per question
+  const [previousScores, setPreviousScores] = useState<Map<number, number>>(new Map()); // Track previous scores
   const [finalReport, setFinalReport] = useState<any>(null);
   const { toast } = useToast();
 
+  // Memoize callbacks to prevent unnecessary re-renders
+  const handleAnswerChange = useCallback((answer: string) => {
+    setCurrentAnswer(answer);
+  }, []);
+
   const handleSetupComplete = (data: InterviewData) => {
     setInterviewData(data);
+    
+    // Extract all questions from the response
+    if (data.resumeData?.firstQuestion?.all_questions) {
+      const questions = data.resumeData.firstQuestion.all_questions.map((q: any) => ({
+        question: q.question,
+        questionType: q.type || q.category || 'general',
+        questionNumber: q.question_number,
+        totalQuestions: q.total_questions,
+      }));
+      setAllQuestions(questions);
+    } else if (data.resumeData?.firstQuestion) {
+      // Fallback if structure is different
+      const firstQ = data.resumeData.firstQuestion;
+      setCurrentQuestion({
+        question: firstQ.question,
+        questionType: firstQ.question_type || 'general',
+        questionNumber: firstQ.question_number || 1,
+        totalQuestions: firstQ.total_questions || 12,
+      });
+    }
+    
+    // Show welcome screen first
+    setStage('welcome');
+  };
+
+  const handleStartInterview = () => {
+    // Show questions preview first if questions are available
+    if (allQuestions.length > 0) {
+      setStage('preview');
+    } else {
+      // If no questions loaded, try to load first question and go directly to interview
+      // This handles edge case where questions might not be in expected format
+      if (interviewData?.resumeData?.firstQuestion) {
+        const firstQ = interviewData.resumeData.firstQuestion;
+        setCurrentQuestion({
+          question: firstQ.question || firstQ.question_text,
+          questionType: firstQ.question_type || firstQ.type || 'general',
+          questionNumber: firstQ.question_number || 1,
+          totalQuestions: firstQ.total_questions || 12,
+        });
+      }
+      setStage('interview');
+    }
+  };
+
+  const handleStartFromPreview = () => {
+    // Load first question and start interview
+    if (allQuestions.length > 0) {
+      setCurrentQuestion(allQuestions[0]);
+    }
     setStage('interview');
   };
 
-  const handleQuestionReceived = (question: QuestionData) => {
+  const handleBackToWelcome = () => {
+    setStage('welcome');
+  };
+
+  const handleQuestionReceived = useCallback((question: QuestionData) => {
     setCurrentQuestion(question);
     setCurrentAnswer('');
     setCurrentAnalysis(null);
-  };
+  }, []);
 
-  // Load first question when interview starts
+  // Load first question when interview starts (if not already loaded)
   useEffect(() => {
-    if (stage === 'interview' && interviewData?.resumeData?.firstQuestion) {
-      handleQuestionReceived(interviewData.resumeData.firstQuestion);
+    if (stage === 'interview' && !currentQuestion && allQuestions.length > 0) {
+      setCurrentQuestion(allQuestions[0]);
     }
-  }, [stage, interviewData]);
+  }, [stage, allQuestions]);
 
   const handleAnswerAnalyzed = (analysis: AnswerAnalysis) => {
     setCurrentAnalysis(analysis);
     
-    // Save answer with analysis
-    if (currentQuestion && currentAnswer) {
-      const answer: InterviewAnswer = {
-        question: currentQuestion.question,
-        answer: currentAnswer,
-        analysis,
-        questionNumber: currentQuestion.questionNumber,
-      };
-      setAllAnswers(prev => [...prev, answer]);
+    // Track attempts and previous scores
+    if (currentQuestion) {
+      const questionNum = currentQuestion.questionNumber;
+      const currentAttempts = questionAttempts.get(questionNum) || 0;
+      setQuestionAttempts(prev => new Map(prev).set(questionNum, currentAttempts + 1));
+      
+      // Store previous score if this is a retry
+      if (currentAttempts > 0) {
+        const prevScore = previousScores.get(questionNum);
+        if (prevScore !== undefined) {
+          setPreviousScores(prev => new Map(prev).set(questionNum, prevScore));
+        }
+      } else {
+        // First attempt - store current score as previous for future retries
+        setPreviousScores(prev => new Map(prev).set(questionNum, analysis.score));
+      }
+      
+      // Save answer with analysis (replace if retry)
+      if (currentAnswer) {
+        const answer: InterviewAnswer = {
+          question: currentQuestion.question,
+          answer: currentAnswer,
+          analysis,
+          questionNumber: questionNum,
+          attemptNumber: currentAttempts + 1,
+        };
+        
+        // If retry, replace the previous answer for this question
+        setAllAnswers(prev => {
+          const filtered = prev.filter(a => a.questionNumber !== questionNum);
+          return [...filtered, answer];
+        });
+      }
     }
     
     setStage('feedback');
   };
 
+  const handleRetryQuestion = () => {
+    // Go back to interview screen with same question
+    setCurrentAnswer('');
+    setCurrentAnalysis(null);
+    setStage('interview');
+    
+    toast({
+      title: 'Retry Question',
+      description: 'Take your time and give your best answer!',
+    });
+  };
+
   const handleContinueToNext = async () => {
-    if (currentQuestion && currentQuestion.questionNumber < currentQuestion.totalQuestions) {
-      // Generate next question
+    if (!currentQuestion) return;
+    
+    const nextQuestionNumber = currentQuestion.questionNumber + 1;
+    
+    // Use pre-loaded questions if available
+    if (allQuestions.length > 0 && nextQuestionNumber <= allQuestions.length) {
+      const nextQuestion = allQuestions[nextQuestionNumber - 1];
+      handleQuestionReceived(nextQuestion);
+      setStage('interview');
+      setCurrentAnalysis(null);
+      setCurrentAnswer('');
+      return;
+    }
+    
+    // Fallback: Generate next question if not pre-loaded
+    if (nextQuestionNumber <= (currentQuestion.totalQuestions || 12)) {
       try {
-        // Helper function to get API base URL (already includes /api/v1)
         const getAPIBase = () => {
           const envUrl = import.meta.env.VITE_API_BASE_URL;
           if (import.meta.env.DEV && envUrl && envUrl.includes('72.60.101.14')) {
@@ -114,10 +230,14 @@ export default function MockInterviewAI() {
         const token = localStorage.getItem('access_token');
         
         const formData = new FormData();
-        formData.append('question_number', currentQuestion.questionNumber.toString());
+        formData.append('question_number', (nextQuestionNumber - 1).toString());
         formData.append('previous_answers', JSON.stringify(allAnswers));
         formData.append('job_role', interviewData?.jobRole || '');
         formData.append('experience_level', interviewData?.experienceLevel || 'fresher');
+        formData.append('interview_round', interviewData?.interviewRound || 'technical');
+        if (interviewData?.companyName) {
+          formData.append('company_name', interviewData.companyName);
+        }
         if (interviewData?.resumeData) {
           formData.append('resume_data', JSON.stringify(interviewData.resumeData));
         }
@@ -203,6 +323,8 @@ export default function MockInterviewAI() {
     setCurrentAnswer('');
     setCurrentAnalysis(null);
     setAllAnswers([]);
+    setQuestionAttempts(new Map());
+    setPreviousScores(new Map());
     setFinalReport(null);
   };
 
@@ -219,11 +341,41 @@ export default function MockInterviewAI() {
         <SetupScreen onComplete={handleSetupComplete} />
       )}
 
-      {stage === 'interview' && interviewData && currentQuestion && (
+      {stage === 'welcome' && interviewData && (
+        <InterviewWelcome
+          companyName={interviewData.companyName || 'General'}
+          jobRole={interviewData.jobRole}
+          experienceLevel={interviewData.experienceLevel}
+          interviewRound={interviewData.interviewRound || 'technical'}
+          totalQuestions={allQuestions.length > 0 ? allQuestions[0].totalQuestions : 12}
+          onStart={handleStartInterview}
+        />
+      )}
+
+      {stage === 'preview' && interviewData && allQuestions.length > 0 && (
+        <QuestionsPreview
+          questions={allQuestions.map((q: any) => ({
+            question: q.question,
+            questionType: q.questionType || q.type,
+            questionNumber: q.questionNumber || q.question_number,
+            totalQuestions: q.totalQuestions || q.total_questions,
+            category: q.category,
+            round: q.round || interviewData.interviewRound,
+          }))}
+          companyName={interviewData.companyName || 'General'}
+          jobRole={interviewData.jobRole}
+          experienceLevel={interviewData.experienceLevel}
+          interviewRound={interviewData.interviewRound || 'technical'}
+          onStart={handleStartFromPreview}
+          onBack={handleBackToWelcome}
+        />
+      )}
+
+      {stage === 'interview' && interviewData && currentQuestion && currentQuestion.question && (
         <InterviewScreen
           question={currentQuestion}
           interviewData={interviewData}
-          onAnswerChange={setCurrentAnswer}
+          onAnswerChange={handleAnswerChange}
           onAnswerSubmit={handleAnswerAnalyzed}
           onQuestionReceived={handleQuestionReceived}
           allAnswers={allAnswers}
@@ -237,7 +389,10 @@ export default function MockInterviewAI() {
           analysis={currentAnalysis}
           questionNumber={currentQuestion.questionNumber}
           totalQuestions={currentQuestion.totalQuestions}
+          attemptNumber={questionAttempts.get(currentQuestion.questionNumber) || 1}
+          previousScore={previousScores.get(currentQuestion.questionNumber)}
           onContinue={handleContinueToNext}
+          onRetry={handleRetryQuestion}
         />
       )}
 

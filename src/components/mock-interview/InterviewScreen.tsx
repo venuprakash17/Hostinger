@@ -8,8 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, Mic, MicOff, Volume2, VolumeX, User, Clock } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Loader2, Mic, MicOff, Volume2, VolumeX, User, Clock, Keyboard, Type } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { InterviewerAvatar } from './InterviewerAvatar';
+import { ttsService } from '@/utils/ttsService';
 
 interface QuestionData {
   question: string;
@@ -35,9 +39,23 @@ export function InterviewScreen({
   onQuestionReceived,
   allAnswers,
 }: InterviewScreenProps) {
+  // Safety check - ensure question exists and has required properties
+  if (!question || !question.question) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p>Loading question...</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [typedAnswer, setTypedAnswer] = useState(''); // For typed input
+  const [inputMode, setInputMode] = useState<'voice' | 'type' | 'both'>('both'); // Input mode
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   
@@ -78,11 +96,7 @@ export function InterviewScreen({
           }
         }
 
-        setTranscript(prev => {
-          const newTranscript = prev + finalTranscript;
-          onAnswerChange(newTranscript);
-          return newTranscript;
-        });
+        setTranscript(prev => prev + finalTranscript);
       };
 
       recognitionRef.current.onerror = (event: any) => {
@@ -101,14 +115,50 @@ export function InterviewScreen({
         setIsListening(false);
       };
     }
-  }, []);
+  }, [inputMode, typedAnswer, onAnswerChange]);
 
   // Speak question using browser TTS
   useEffect(() => {
     if (question && question.question) {
       speakQuestion(question.question);
     }
-  }, [question]);
+    // Reset answer when question changes
+    setTranscript('');
+    setTypedAnswer('');
+    setTimeElapsed(0);
+    // Cleanup on unmount
+    return () => {
+      ttsService.stop();
+    };
+  }, [question?.question]);
+
+  // Update parent with combined answer when transcript or typedAnswer changes
+  // Use a ref to track if we should update to avoid unnecessary calls
+  const answerUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  useEffect(() => {
+    // Debounce the parent update to avoid too many calls
+    if (answerUpdateTimeoutRef.current) {
+      clearTimeout(answerUpdateTimeoutRef.current);
+    }
+    
+    answerUpdateTimeoutRef.current = setTimeout(() => {
+      if (inputMode === 'both') {
+        const combined = (typedAnswer.trim() + ' ' + transcript.trim()).trim();
+        onAnswerChange(combined);
+      } else if (inputMode === 'voice') {
+        onAnswerChange(transcript);
+      } else {
+        onAnswerChange(typedAnswer);
+      }
+    }, 100); // Small debounce to batch updates
+    
+    return () => {
+      if (answerUpdateTimeoutRef.current) {
+        clearTimeout(answerUpdateTimeoutRef.current);
+      }
+    };
+  }, [transcript, typedAnswer, inputMode, onAnswerChange]);
 
   // Timer
   useEffect(() => {
@@ -130,29 +180,19 @@ export function InterviewScreen({
     };
   }, [isListening]);
 
-  const speakQuestion = (text: string) => {
-    // Stop any ongoing speech
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.9;
-    utterance.pitch = 1;
-    utterance.volume = 1;
-
-    utterance.onstart = () => {
+  const speakQuestion = async (text: string) => {
+    try {
       setIsSpeaking(true);
-    };
-
-    utterance.onend = () => {
+      await ttsService.speak(text, {
+        rate: 0.88, // Natural speaking pace
+        pitch: 0.85, // Lower pitch for more masculine, natural voice
+        volume: 1.0,
+      });
       setIsSpeaking(false);
-    };
-
-    utterance.onerror = () => {
+    } catch (error) {
+      console.error('TTS Error:', error);
       setIsSpeaking(false);
-    };
-
-    speechRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
+    }
   };
 
   const toggleListening = () => {
@@ -176,10 +216,13 @@ export function InterviewScreen({
   };
 
   const handleSubmitAnswer = async () => {
-    if (!transcript.trim()) {
+    // Combine typed answer and transcript
+    const finalAnswer = (typedAnswer.trim() + ' ' + transcript.trim()).trim();
+    
+    if (!finalAnswer) {
       toast({
         title: 'No Answer',
-        description: 'Please provide an answer before submitting.',
+        description: 'Please provide an answer (type or speak) before submitting.',
         variant: 'destructive',
       });
       return;
@@ -207,22 +250,41 @@ export function InterviewScreen({
         },
         body: JSON.stringify({
           question: question.question,
-          answer: transcript,
+          answer: finalAnswer,
           question_number: question.questionNumber,
           resume_data: interviewData?.resumeData,
           job_description: interviewData?.jobDescription,
         }),
       });
 
-      if (!response.ok) throw new Error('Failed to analyze answer');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+        const errorMessage = errorData.detail || errorData.message || `Server error: ${response.status}`;
+        
+        // Check if it's an Ollama availability issue
+        if (response.status === 503 || errorMessage.includes('Ollama')) {
+          throw new Error('AI service is not available. Please ensure Ollama is installed and running. See console for details.');
+        }
+        
+        throw new Error(errorMessage);
+      }
 
       const analysis = await response.json();
+      
+      // Validate analysis has required fields
+      if (!analysis || typeof analysis.score === 'undefined') {
+        throw new Error('Invalid response from server. Please try again.');
+      }
+      
       onAnswerSubmit(analysis);
+      // Final answer is already updated via useEffect, but ensure it's set here too
+      // This is safe as it's in an async handler, not during render
       
     } catch (error: any) {
+      console.error('Error analyzing answer:', error);
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to analyze answer. Please try again.',
+        title: 'Error Analyzing Answer',
+        description: error.message || 'Failed to analyze answer. Please check if Ollama is running and try again.',
         variant: 'destructive',
       });
     } finally {
@@ -242,21 +304,12 @@ export function InterviewScreen({
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <div className="relative">
-                <div className={`w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-3xl ${
-                  isSpeaking ? 'animate-pulse' : ''
-                }`}>
-                  🤖
-                </div>
-                {isSpeaking && (
-                  <div className="absolute inset-0 rounded-full bg-blue-400 animate-ping opacity-75"></div>
-                )}
-              </div>
-              <div>
-                <div>AI Interviewer</div>
-                <Badge variant="secondary" className="text-xs">
-                  Question {question.questionNumber} of {question.totalQuestions}
+            <CardTitle className="flex flex-col items-center gap-3">
+              <InterviewerAvatar isSpeaking={isSpeaking} isListening={isListening} />
+              <div className="text-center">
+                <div className="text-lg font-semibold">AI Interviewer</div>
+                <Badge variant="secondary" className="text-xs mt-1">
+                  Question {question?.questionNumber || 1} of {question?.totalQuestions || 12}
                 </Badge>
               </div>
             </CardTitle>
@@ -270,10 +323,12 @@ export function InterviewScreen({
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Badge variant="outline" className="mb-2">
-              {question.questionType.charAt(0).toUpperCase() + question.questionType.slice(1)}
-            </Badge>
-            <p className="text-lg leading-relaxed">{question.question}</p>
+            {question.questionType && (
+              <Badge variant="outline" className="mb-2">
+                {question.questionType.charAt(0).toUpperCase() + question.questionType.slice(1)}
+              </Badge>
+            )}
+            <p className="text-lg leading-relaxed">{question.question || 'Loading question...'}</p>
           </div>
 
           <Button
@@ -315,47 +370,105 @@ export function InterviewScreen({
             <span className="text-lg font-bold">{formatTime(timeElapsed)}</span>
           </div>
 
-          {/* Microphone Control */}
-          <div className="flex flex-col items-center gap-4">
-            <Button
-              size="lg"
-              onClick={toggleListening}
-              disabled={isAnalyzing}
-              className={`w-24 h-24 rounded-full ${
-                isListening
-                  ? 'bg-red-500 hover:bg-red-600 animate-pulse'
-                  : 'bg-primary hover:bg-primary/90'
-              }`}
-            >
-              {isListening ? (
-                <MicOff className="h-8 w-8" />
-              ) : (
-                <Mic className="h-8 w-8" />
-              )}
-            </Button>
-            <p className="text-sm text-muted-foreground">
-              {isListening ? 'Listening... Speak your answer' : 'Click to start recording'}
-            </p>
-          </div>
-
-          {/* Live Transcript */}
-          <div className="space-y-2">
-            <Label>Your Answer (Live Transcript)</Label>
-            <div className="min-h-[120px] p-4 border rounded-lg bg-muted/50">
-              {transcript ? (
-                <p className="text-sm leading-relaxed">{transcript}</p>
-              ) : (
-                <p className="text-sm text-muted-foreground italic">
-                  {isListening ? 'Listening...' : 'Your answer will appear here as you speak'}
-                </p>
-              )}
+          {/* Microphone Control - Only show if voice mode is enabled */}
+          {(inputMode === 'voice' || inputMode === 'both') && (
+            <div className="flex flex-col items-center gap-4">
+              <Button
+                size="lg"
+                onClick={toggleListening}
+                disabled={isAnalyzing}
+                className={`w-24 h-24 rounded-full ${
+                  isListening
+                    ? 'bg-red-500 hover:bg-red-600 animate-pulse'
+                    : 'bg-primary hover:bg-primary/90'
+                }`}
+              >
+                {isListening ? (
+                  <MicOff className="h-8 w-8" />
+                ) : (
+                  <Mic className="h-8 w-8" />
+                )}
+              </Button>
+              <p className="text-sm text-muted-foreground">
+                {isListening ? 'Listening... Speak your answer' : 'Click to start recording'}
+              </p>
             </div>
+          )}
+
+          {/* Answer Input - Type or Voice */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label>Your Answer</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={inputMode === 'type' || inputMode === 'both' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setInputMode(inputMode === 'type' ? 'both' : 'type')}
+                >
+                  <Type className="h-4 w-4 mr-1" />
+                  Type
+                </Button>
+                <Button
+                  type="button"
+                  variant={inputMode === 'voice' || inputMode === 'both' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setInputMode(inputMode === 'voice' ? 'both' : 'voice')}
+                >
+                  <Mic className="h-4 w-4 mr-1" />
+                  Voice
+                </Button>
+              </div>
+            </div>
+
+            {/* Typed Answer Input */}
+            {(inputMode === 'type' || inputMode === 'both') && (
+              <Textarea
+                placeholder={inputMode === 'both' 
+                  ? "Type your answer here... (Voice input will be added below)" 
+                  : "Type your answer here..."}
+                value={typedAnswer}
+                onChange={(e) => {
+                  setTypedAnswer(e.target.value);
+                }}
+                className="min-h-[120px] resize-none"
+                disabled={isAnalyzing}
+              />
+            )}
+
+            {/* Voice Transcript Display */}
+            {(inputMode === 'voice' || inputMode === 'both') && (
+              <div className="space-y-2">
+                <Label className="text-sm text-muted-foreground">
+                  Voice Transcript {inputMode === 'both' && '(will be combined with typed text)'}
+                </Label>
+                <div className="min-h-[100px] p-4 border rounded-lg bg-muted/50">
+                  {transcript ? (
+                    <p className="text-sm leading-relaxed">{transcript}</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">
+                      {isListening ? 'Listening...' : 'Click microphone to start voice input'}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Combined Answer Preview (if both modes) */}
+            {inputMode === 'both' && (typedAnswer || transcript) && (
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Combined Answer Preview:</Label>
+                <div className="p-3 border rounded-lg bg-blue-50 dark:bg-blue-950/20 text-sm">
+                  {(typedAnswer.trim() + ' ' + transcript.trim()).trim() || 'Start typing or speaking...'}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Submit Button */}
           <Button
             onClick={handleSubmitAnswer}
-            disabled={!transcript.trim() || isAnalyzing || isListening}
+            disabled={(!transcript.trim() && !typedAnswer.trim()) || isAnalyzing || isListening}
             className="w-full"
             size="lg"
           >
@@ -371,7 +484,7 @@ export function InterviewScreen({
 
           <Alert>
             <AlertDescription className="text-xs">
-              💡 Tip: Click the microphone, speak your answer clearly, then click it again to stop. Review your transcript before submitting.
+              💡 Tip: You can type your answer, use voice input, or both! Click the microphone to start voice recording, or type directly in the text area. Both inputs will be combined when you submit.
             </AlertDescription>
           </Alert>
         </CardContent>
