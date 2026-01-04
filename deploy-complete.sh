@@ -199,6 +199,10 @@ ssh ${SERVER_USER}@${SERVER_HOST} << 'ENDSSH'
     if [ -f /root/elevate-edu/nginx.production.conf ]; then
         echo "Updating nginx configuration..."
         cp /root/elevate-edu/nginx.production.conf /etc/nginx/sites-available/svnaprojob.online 2>/dev/null || true
+        # Also copy to sites-enabled if symlink doesn't exist
+        if [ ! -L /etc/nginx/sites-enabled/svnaprojob.online ]; then
+            ln -sf /etc/nginx/sites-available/svnaprojob.online /etc/nginx/sites-enabled/svnaprojob.online 2>/dev/null || true
+        fi
     fi
     
     # Clear all caches
@@ -206,14 +210,24 @@ ssh ${SERVER_USER}@${SERVER_HOST} << 'ENDSSH'
     rm -rf /var/cache/nginx/*
     rm -rf ${FRONTEND_PATH}/dist/.vite 2>/dev/null || true
     
-    # Reload nginx
-    echo "Reloading nginx..."
-    if nginx -t 2>/dev/null; then
-        systemctl reload nginx || systemctl restart nginx
-        echo "✅ Nginx reloaded"
+    # Test and restart nginx
+    echo "Testing nginx configuration..."
+    if nginx -t 2>&1; then
+        echo "Restarting nginx..."
+        systemctl stop nginx 2>/dev/null || true
+        sleep 1
+        systemctl start nginx
+        sleep 2
+        if systemctl is-active --quiet nginx; then
+            echo "✅ Nginx restarted successfully"
+        else
+            echo "⚠️  Nginx failed to start, checking logs..."
+            systemctl status nginx --no-pager | head -20
+        fi
     else
-        echo "⚠️  Nginx configuration test failed"
-        echo "   Check: nginx -t"
+        echo "❌ Nginx configuration test failed!"
+        echo "   Run: nginx -t"
+        echo "   Fix config and restart manually"
     fi
     
     echo "✅ Server setup complete"
