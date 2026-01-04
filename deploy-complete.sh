@@ -77,17 +77,26 @@ fi
 echo -e "${GREEN}✅ Frontend build successful${NC}"
 echo ""
 
-# Step 6: Create backup on server
-echo -e "${YELLOW}💾 Step 6: Creating backup on server...${NC}"
+# Step 6: Create directories and backup on server
+echo -e "${YELLOW}💾 Step 6: Setting up directories and creating backup on server...${NC}"
 ssh ${SERVER_USER}@${SERVER_HOST} << ENDSSH
-    cd ${SERVER_PATH}
-    if [ -d dist ]; then
+    # Create frontend directory if it doesn't exist
+    mkdir -p ${FRONTEND_PATH}/dist
+    chmod -R 755 ${FRONTEND_PATH}
+    
+    # Create backend directory if it doesn't exist
+    mkdir -p ${SERVER_PATH}/backend
+    chmod -R 755 ${SERVER_PATH}
+    
+    # Create backup if dist exists
+    cd ${FRONTEND_PATH}
+    if [ -d dist ] && [ "\$(ls -A dist 2>/dev/null)" ]; then
         BACKUP_DIR="dist.backup.\$(date +%Y%m%d_%H%M%S)"
         cp -r dist "\$BACKUP_DIR"
         echo "Backup created: \$BACKUP_DIR"
     fi
 ENDSSH
-echo -e "${GREEN}✅ Backup created${NC}"
+echo -e "${GREEN}✅ Directories created and backup done${NC}"
 echo ""
 
 # Step 7: Upload frontend
@@ -98,6 +107,8 @@ echo ""
 
 # Step 8: Upload backend
 echo -e "${YELLOW}📤 Step 8: Uploading backend files...${NC}"
+# Ensure backend directory exists on server
+ssh ${SERVER_USER}@${SERVER_HOST} "mkdir -p ${SERVER_PATH}/backend"
 rsync -avz --progress \
     --exclude 'venv' \
     --exclude '__pycache__' \
