@@ -138,8 +138,8 @@ else
 fi
 echo ""
 
-# Step 8: Upload backend
-echo -e "${YELLOW}📤 Step 8: Uploading backend files...${NC}"
+# Step 8: Upload backend and nginx config
+echo -e "${YELLOW}📤 Step 8: Uploading backend files and nginx config...${NC}"
 # Ensure backend directory exists on server
 ssh ${SERVER_USER}@${SERVER_HOST} "mkdir -p ${SERVER_PATH}/backend"
 rsync -avz --progress \
@@ -152,7 +152,14 @@ rsync -avz --progress \
     --exclude 'uploads' \
     --exclude 'data' \
     backend/ ${SERVER_USER}@${SERVER_HOST}:${SERVER_PATH}/backend/
-echo -e "${GREEN}✅ Backend uploaded${NC}"
+
+# Upload nginx config if it exists
+if [ -f "nginx.production.conf" ]; then
+    echo -e "${YELLOW}   Uploading nginx configuration...${NC}"
+    rsync -avz nginx.production.conf ${SERVER_USER}@${SERVER_HOST}:${SERVER_PATH}/nginx.production.conf
+fi
+
+echo -e "${GREEN}✅ Backend and configs uploaded${NC}"
 echo ""
 
 # Step 9: Setup and restart services on server
