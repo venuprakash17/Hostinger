@@ -3,42 +3,60 @@
  * Replaces Appwrite client
  */
 
-// Get API base URL from environment or detect production
-const getApiBaseUrl = () => {
+// Get API base URL - Runtime detection (not build-time)
+const getApiBaseUrl = (): string => {
+  // Priority 1: Environment variable (set during build)
   const envUrl = import.meta.env.VITE_API_BASE_URL;
-  
-  // If environment variable is set, use it
-  if (envUrl) {
-    return envUrl;
+  if (envUrl && envUrl.trim() !== '') {
+    // Don't use old IP addresses even if in env
+    if (envUrl.includes('72.60.101.14:8000')) {
+      console.warn('[API Client] Detected old IP in env, using production domain instead');
+    } else {
+      return envUrl;
+    }
   }
   
-  // Auto-detect production: if running on svnaprojob.online, use production API
+  // Priority 2: Runtime detection based on current hostname
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
+    const protocol = window.location.protocol === 'https:' ? 'https:' : 'https:'; // Force HTTPS in production
+    
+    // Production domain detection
     if (hostname === 'svnaprojob.online' || hostname === 'www.svnaprojob.online') {
       return 'https://svnaprojob.online/api/v1';
     }
-    // If accessing via IP, use HTTPS API
-    if (hostname === '72.60.101.14') {
+    
+    // IP address detection - use domain instead
+    if (hostname === '72.60.101.14' || hostname.includes('72.60.101.14')) {
       return 'https://svnaprojob.online/api/v1';
+    }
+    
+    // Development detection
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:8000/api/v1';
     }
   }
   
-  // Development fallback
+  // Priority 3: Development mode check
   if (import.meta.env.DEV) {
     return 'http://localhost:8000/api/v1';
   }
   
-  // Production fallback
+  // Priority 4: Production fallback (always HTTPS)
   return 'https://svnaprojob.online/api/v1';
 };
 
-const API_BASE_URL = getApiBaseUrl();
+// Get API base URL at runtime (not build-time constant)
+const getRuntimeApiBaseUrl = (): string => {
+  return getApiBaseUrl();
+};
 
-// Log API base URL for debugging (only in development)
-if (import.meta.env.DEV) {
-  console.log('[API Client] API Base URL:', API_BASE_URL);
+// Log API base URL for debugging (always log in production too for troubleshooting)
+if (typeof window !== 'undefined') {
+  const runtimeUrl = getRuntimeApiBaseUrl();
+  console.log('[API Client] Runtime API Base URL:', runtimeUrl);
   console.log('[API Client] Environment variable:', import.meta.env.VITE_API_BASE_URL);
+  console.log('[API Client] Current hostname:', window.location.hostname);
 }
 
 // Token management
@@ -62,17 +80,22 @@ const clearTokens = () => {
 
 // API Client class
 class APIClient {
-  private baseURL: string;
+  private getBaseURL(): string {
+    // Always get fresh URL at runtime
+    return getRuntimeApiBaseUrl();
+  }
 
-  constructor(baseURL: string) {
-    this.baseURL = baseURL;
+  constructor(baseURL?: string) {
+    // baseURL parameter is ignored - we use runtime detection
+    // This maintains compatibility with existing code
   }
 
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
-    const url = `${this.baseURL}${endpoint}`;
+    const baseURL = this.getBaseURL();
+    const url = `${baseURL}${endpoint}`;
     const token = getToken();
 
     // Don't set Content-Type for FormData - browser will set it with boundary
@@ -2803,8 +2826,8 @@ class APIClient {
   }
 }
 
-// Export singleton instance
-export const apiClient = new APIClient(API_BASE_URL);
+// Export singleton instance (baseURL parameter ignored - uses runtime detection)
+export const apiClient = new APIClient();
 
 // Export helpers for compatibility
 export const authHelpers = {
