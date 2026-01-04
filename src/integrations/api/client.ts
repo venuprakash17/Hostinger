@@ -330,7 +330,8 @@ class APIClient {
     }
 
     try {
-      const response = await fetch(`${this.baseURL}/auth/refresh`, {
+      const baseURL = this.getBaseURL();
+      const response = await fetch(`${baseURL}/auth/refresh`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -352,7 +353,8 @@ class APIClient {
 
   // Authentication methods
   async login(email: string, password: string) {
-    const url = `${this.baseURL}/auth/login`;
+    const baseURL = this.getBaseURL();
+    const url = `${baseURL}/auth/login`;
     console.log('[API Client] Starting login request to:', url);
     
     const controller = new AbortController();
@@ -481,7 +483,8 @@ class APIClient {
           return null;
         }
 
-        const response = await fetch(`${this.baseURL}/auth/me`, {
+        const baseURL = this.getBaseURL();
+        const response = await fetch(`${baseURL}/auth/me`, {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${accessToken}`,
@@ -559,7 +562,8 @@ class APIClient {
           return [];
         }
 
-        const response = await fetch(`${this.baseURL}/users/me/roles`, {
+        const baseURL = this.getBaseURL();
+        const response = await fetch(`${baseURL}/users/me/roles`, {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${accessToken}`,
@@ -807,7 +811,8 @@ class APIClient {
 
   async downloadJobTemplate() {
     const token = getToken();
-    const url = `${this.baseURL}/jobs/template`;
+    const baseURL = this.getBaseURL();
+    const url = `${baseURL}/jobs/template`;
     
     const response = await fetch(url, {
       method: 'GET',
@@ -891,7 +896,8 @@ class APIClient {
     const formData = new FormData();
     formData.append('file', file);
     
-    const response = await fetch(`${this.baseURL}/job-rounds/rounds/${roundId}/bulk-upload`, {
+    const baseURL = this.getBaseURL();
+    const response = await fetch(`${baseURL}/job-rounds/rounds/${roundId}/bulk-upload`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${getToken()}`
@@ -915,7 +921,8 @@ class APIClient {
   }
 
   async downloadRoundTemplate(roundId: number) {
-    const response = await fetch(`${this.baseURL}/job-rounds/rounds/${roundId}/template`, {
+    const baseURL = this.getBaseURL();
+    const response = await fetch(`${baseURL}/job-rounds/rounds/${roundId}/template`, {
       headers: {
         'Authorization': `Bearer ${getToken()}`
       }
@@ -1227,7 +1234,8 @@ class APIClient {
   }
 
   async downloadHallTicket(ticketId: number) {
-    const url = `${this.baseURL}/hall-tickets/${ticketId}/download`;
+    const baseURL = this.getBaseURL();
+    const url = `${baseURL}/hall-tickets/${ticketId}/download`;
     const token = getToken();
     
     const response = await fetch(url, {
@@ -1859,7 +1867,8 @@ class APIClient {
 
   async downloadQuestionTemplate(format: 'xlsx' | 'csv' | 'json' = 'xlsx') {
     const token = getToken();
-    const url = `${this.baseURL}/bulk-upload/templates/questions?format=${format}`;
+    const baseURL = this.getBaseURL();
+    const url = `${baseURL}/bulk-upload/templates/questions?format=${format}`;
     
     const response = await fetch(url, {
       method: 'GET',
@@ -2720,7 +2729,8 @@ class APIClient {
   async bulkUploadCompanyTrainingQuizQuestions(roundId: number, file: File): Promise<any> {
     const formData = new FormData();
     formData.append('file', file);
-    const url = `${this.baseURL}/bulk-upload/company-training/round-contents/quiz?round_id=${roundId}`;
+    const baseURL = this.getBaseURL();
+    const url = `${baseURL}/bulk-upload/company-training/round-contents/quiz?round_id=${roundId}`;
     const token = getToken();
     const headers: HeadersInit = {};
     if (token) {
@@ -2741,7 +2751,8 @@ class APIClient {
   async bulkUploadCompanyTrainingCodingProblems(roundId: number, file: File): Promise<any> {
     const formData = new FormData();
     formData.append('file', file);
-    const url = `${this.baseURL}/bulk-upload/company-training/round-contents/coding?round_id=${roundId}`;
+    const baseURL = this.getBaseURL();
+    const url = `${baseURL}/bulk-upload/company-training/round-contents/coding?round_id=${roundId}`;
     const token = getToken();
     const headers: HeadersInit = {};
     if (token) {
