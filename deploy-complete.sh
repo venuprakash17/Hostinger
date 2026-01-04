@@ -188,6 +188,11 @@ ssh ${SERVER_USER}@${SERVER_HOST} << 'ENDSSH'
     # Wait for backend to start
     sleep 3
     
+    # Clear all caches
+    echo "Clearing caches..."
+    rm -rf /var/cache/nginx/*
+    rm -rf ${FRONTEND_PATH}/dist/.vite 2>/dev/null || true
+    
     # Reload nginx
     echo "Reloading nginx..."
     if nginx -t 2>/dev/null; then

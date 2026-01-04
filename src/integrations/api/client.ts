@@ -5,6 +5,13 @@
 
 // Get API base URL - Runtime detection (not build-time)
 const getApiBaseUrl = (): string => {
+  // PRIORITY 0: Check if main.tsx already fixed the URL (IMMEDIATE)
+  if (typeof window !== 'undefined' && (window as any).__CORRECT_API_URL__) {
+    const fixedUrl = (window as any).__CORRECT_API_URL__;
+    console.log('[API Client] ✅ Using URL fixed by main.tsx:', fixedUrl);
+    return fixedUrl;
+  }
+  
   // ALWAYS use runtime detection first - ignore build-time env vars for production
   // This ensures we always use the correct URL based on where the app is running
   
@@ -20,6 +27,10 @@ const getApiBaseUrl = (): string => {
       // Always use HTTPS for API calls in production, even if page is HTTP
       const apiUrl = 'https://svnaprojob.online/api/v1';
       console.log('[API Client] ✅ Detected production domain, using:', apiUrl);
+      // Store for future use
+      if (typeof window !== 'undefined') {
+        (window as any).__CORRECT_API_URL__ = apiUrl;
+      }
       return apiUrl;
     }
     
@@ -27,13 +38,22 @@ const getApiBaseUrl = (): string => {
     if (hostname === '72.60.101.14' || hostname.includes('72.60.101.14')) {
       const apiUrl = 'https://svnaprojob.online/api/v1';
       console.log('[API Client] ✅ Detected IP address, using domain:', apiUrl);
+      // Store for future use
+      if (typeof window !== 'undefined') {
+        (window as any).__CORRECT_API_URL__ = apiUrl;
+      }
       return apiUrl;
     }
     
     // Development detection
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      console.log('[API Client] ✅ Detected localhost, using:', 'http://localhost:8000/api/v1');
-      return 'http://localhost:8000/api/v1';
+      const apiUrl = 'http://localhost:8000/api/v1';
+      console.log('[API Client] ✅ Detected localhost, using:', apiUrl);
+      // Store for future use
+      if (typeof window !== 'undefined') {
+        (window as any).__CORRECT_API_URL__ = apiUrl;
+      }
+      return apiUrl;
     }
     
     console.log('[API Client] ⚠️ Hostname not matched, will check env var or use fallback');
@@ -42,24 +62,43 @@ const getApiBaseUrl = (): string => {
   // Priority 2: Environment variable (only if runtime detection didn't match)
   const envUrl = import.meta.env.VITE_API_BASE_URL;
   if (envUrl && envUrl.trim() !== '') {
-    // Don't use old IP addresses even if in env
+    // NEVER use old IP addresses even if in env
     if (envUrl.includes('72.60.101.14:8000')) {
-      console.warn('[API Client] ⚠️ Detected old IP in env, using production domain instead');
+      console.error('[API Client] 🚨 BLOCKED old IP from env var!');
+      const fallback = typeof window !== 'undefined' && window.location.hostname === 'svnaprojob.online'
+        ? 'https://svnaprojob.online/api/v1'
+        : 'http://localhost:8000/api/v1';
+      console.log('[API Client] Using fallback:', fallback);
+      if (typeof window !== 'undefined') {
+        (window as any).__CORRECT_API_URL__ = fallback;
+      }
+      return fallback;
     } else {
       console.log('[API Client] Using env var:', envUrl);
+      if (typeof window !== 'undefined') {
+        (window as any).__CORRECT_API_URL__ = envUrl;
+      }
       return envUrl;
     }
   }
   
   // Priority 3: Development mode check
   if (import.meta.env.DEV) {
-    console.log('[API Client] ✅ Development mode, using:', 'http://localhost:8000/api/v1');
-    return 'http://localhost:8000/api/v1';
+    const apiUrl = 'http://localhost:8000/api/v1';
+    console.log('[API Client] ✅ Development mode, using:', apiUrl);
+    if (typeof window !== 'undefined') {
+      (window as any).__CORRECT_API_URL__ = apiUrl;
+    }
+    return apiUrl;
   }
   
   // Priority 4: Production fallback (always HTTPS)
-  console.log('[API Client] ✅ Using production fallback:', 'https://svnaprojob.online/api/v1');
-  return 'https://svnaprojob.online/api/v1';
+  const apiUrl = 'https://svnaprojob.online/api/v1';
+  console.log('[API Client] ✅ Using production fallback:', apiUrl);
+  if (typeof window !== 'undefined') {
+    (window as any).__CORRECT_API_URL__ = apiUrl;
+  }
+  return apiUrl;
 };
 
 // Get API base URL at runtime (not build-time constant)
@@ -100,6 +139,13 @@ const clearTokens = () => {
 // API Client class
 class APIClient {
   private getBaseURL(): string {
+    // PRIORITY 0: Use URL fixed by main.tsx (IMMEDIATE, NO CHECKS)
+    if (typeof window !== 'undefined' && (window as any).__CORRECT_API_URL__) {
+      const fixedUrl = (window as any).__CORRECT_API_URL__;
+      console.log('[API Client] ✅ Using pre-fixed URL from main.tsx:', fixedUrl);
+      return fixedUrl;
+    }
+    
     // Always get fresh URL at runtime with detailed logging
     let url = getRuntimeApiBaseUrl();
     
@@ -116,6 +162,8 @@ class APIClient {
           url = 'http://localhost:8000/api/v1';
         }
         console.log('[API Client] ✅ FORCED URL to:', url);
+        // Store for future use
+        (window as any).__CORRECT_API_URL__ = url;
       }
       
       // If we're on production domain but got wrong URL, force correct one
@@ -124,6 +172,8 @@ class APIClient {
         console.warn('[API Client] ⚠️ WRONG URL DETECTED! Forcing correct URL...');
         url = 'https://svnaprojob.online/api/v1';
         console.log('[API Client] ✅ FORCED URL to:', url);
+        // Store for future use
+        (window as any).__CORRECT_API_URL__ = url;
       }
       
       // If we're on IP but got wrong URL, force correct one
@@ -131,6 +181,8 @@ class APIClient {
         console.warn('[API Client] ⚠️ WRONG URL DETECTED on IP! Forcing correct URL...');
         url = 'https://svnaprojob.online/api/v1';
         console.log('[API Client] ✅ FORCED URL to:', url);
+        // Store for future use
+        (window as any).__CORRECT_API_URL__ = url;
       }
     }
     

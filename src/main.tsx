@@ -1,3 +1,40 @@
+// CRITICAL: Fix API URL IMMEDIATELY before any imports
+if (typeof window !== 'undefined') {
+  const hostname = window.location.hostname;
+  const protocol = window.location.protocol;
+  
+  // Force correct API URL based on current domain
+  let correctApiUrl = '';
+  if (hostname === 'svnaprojob.online' || hostname === 'www.svnaprojob.online') {
+    correctApiUrl = 'https://svnaprojob.online/api/v1';
+  } else if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    correctApiUrl = 'http://localhost:8000/api/v1';
+  } else if (hostname.includes('72.60.101.14')) {
+    correctApiUrl = 'https://svnaprojob.online/api/v1';
+  } else {
+    correctApiUrl = 'https://svnaprojob.online/api/v1'; // Default to production
+  }
+  
+  // Override any environment variable that might have old IP
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
+    const originalEnv = import.meta.env.VITE_API_BASE_URL;
+    if (originalEnv && originalEnv.includes('72.60.101.14:8000')) {
+      console.warn('[Main] 🚨 Blocking old IP from env var, using:', correctApiUrl);
+    }
+    // Force the correct URL
+    Object.defineProperty(import.meta.env, 'VITE_API_BASE_URL', {
+      value: correctApiUrl,
+      writable: false,
+      configurable: false
+    });
+  }
+  
+  // Store correct URL globally for immediate access
+  (window as any).__CORRECT_API_URL__ = correctApiUrl;
+  console.log('[Main] ✅ API URL fixed at startup:', correctApiUrl);
+  console.log('[Main] Hostname:', hostname, 'Protocol:', protocol);
+}
+
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
