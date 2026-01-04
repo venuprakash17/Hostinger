@@ -114,6 +114,14 @@ echo ""
 echo -e "${YELLOW}📤 Step 7: Uploading frontend files...${NC}"
 rsync -avz --delete --progress dist/ ${SERVER_USER}@${SERVER_HOST}:${FRONTEND_PATH}/dist/
 echo -e "${GREEN}✅ Frontend uploaded${NC}"
+
+# Verify new code is on server
+echo -e "${YELLOW}🔍 Verifying deployed code...${NC}"
+if ssh ${SERVER_USER}@${SERVER_HOST} "grep -r 'Runtime detection' ${FRONTEND_PATH}/dist/assets/*.js 2>/dev/null | head -1" > /dev/null; then
+    echo -e "${GREEN}✅ New code verified on server${NC}"
+else
+    echo -e "${YELLOW}⚠️  Could not verify new code (may need to check manually)${NC}"
+fi
 echo ""
 
 # Step 8: Upload backend

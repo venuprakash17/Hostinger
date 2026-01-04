@@ -5,18 +5,10 @@
 
 // Get API base URL - Runtime detection (not build-time)
 const getApiBaseUrl = (): string => {
-  // Priority 1: Environment variable (set during build)
-  const envUrl = import.meta.env.VITE_API_BASE_URL;
-  if (envUrl && envUrl.trim() !== '') {
-    // Don't use old IP addresses even if in env
-    if (envUrl.includes('72.60.101.14:8000')) {
-      console.warn('[API Client] Detected old IP in env, using production domain instead');
-    } else {
-      return envUrl;
-    }
-  }
+  // ALWAYS use runtime detection first - ignore build-time env vars for production
+  // This ensures we always use the correct URL based on where the app is running
   
-  // Priority 2: Runtime detection based on current hostname
+  // Priority 1: Runtime detection based on current hostname (MOST IMPORTANT)
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
     const protocol = window.location.protocol;
@@ -27,32 +19,46 @@ const getApiBaseUrl = (): string => {
     if (hostname === 'svnaprojob.online' || hostname === 'www.svnaprojob.online') {
       // Always use HTTPS for API calls in production, even if page is HTTP
       const apiUrl = 'https://svnaprojob.online/api/v1';
-      console.log('[API Client] Detected production domain, using:', apiUrl);
+      console.log('[API Client] ✅ Detected production domain, using:', apiUrl);
       return apiUrl;
     }
     
     // IP address detection - use domain instead
     if (hostname === '72.60.101.14' || hostname.includes('72.60.101.14')) {
       const apiUrl = 'https://svnaprojob.online/api/v1';
-      console.log('[API Client] Detected IP address, using domain:', apiUrl);
+      console.log('[API Client] ✅ Detected IP address, using domain:', apiUrl);
       return apiUrl;
     }
     
     // Development detection
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      console.log('[API Client] Detected localhost, using:', 'http://localhost:8000/api/v1');
+      console.log('[API Client] ✅ Detected localhost, using:', 'http://localhost:8000/api/v1');
       return 'http://localhost:8000/api/v1';
     }
     
-    console.log('[API Client] Hostname not matched, will use fallback');
+    console.log('[API Client] ⚠️ Hostname not matched, will check env var or use fallback');
+  }
+  
+  // Priority 2: Environment variable (only if runtime detection didn't match)
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envUrl && envUrl.trim() !== '') {
+    // Don't use old IP addresses even if in env
+    if (envUrl.includes('72.60.101.14:8000')) {
+      console.warn('[API Client] ⚠️ Detected old IP in env, using production domain instead');
+    } else {
+      console.log('[API Client] Using env var:', envUrl);
+      return envUrl;
+    }
   }
   
   // Priority 3: Development mode check
   if (import.meta.env.DEV) {
+    console.log('[API Client] ✅ Development mode, using:', 'http://localhost:8000/api/v1');
     return 'http://localhost:8000/api/v1';
   }
   
   // Priority 4: Production fallback (always HTTPS)
+  console.log('[API Client] ✅ Using production fallback:', 'https://svnaprojob.online/api/v1');
   return 'https://svnaprojob.online/api/v1';
 };
 
@@ -374,7 +380,9 @@ class APIClient {
   async login(email: string, password: string) {
     const baseURL = this.getBaseURL();
     const url = `${baseURL}/auth/login`;
-    console.log('[API Client] Starting login request to:', url);
+    console.log('[API Client] 🔐 Starting login request to:', url);
+    console.log('[API Client] 🔐 Base URL resolved to:', baseURL);
+    console.log('[API Client] 🔐 Current window location:', typeof window !== 'undefined' ? window.location.href : 'N/A');
     
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
